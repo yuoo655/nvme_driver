@@ -124,14 +124,13 @@ impl<D: DmaAllocator> NvmeInterface<D> {
 
 
         // config identify
-        let mut cmd = NvmeIdentify::new();
-        cmd.prp1 = data_dma_pa;
-        cmd.command_id = 0x1018; //random number
-        cmd.nsid = 1;
-        let common_cmd = unsafe { core::mem::transmute(cmd) };
-
-        drop(admin_queue);
-        self.submit_sync_command(common_cmd);
+        // let mut cmd = NvmeIdentify::new();
+        // cmd.prp1 = data_dma_pa;
+        // cmd.command_id = 0x1018; //random number
+        // cmd.nsid = 1;
+        // let common_cmd = unsafe { core::mem::transmute(cmd) };
+        // drop(admin_queue);
+        // self.submit_sync_command(common_cmd);
 
     }
 
@@ -145,7 +144,7 @@ impl<D: DmaAllocator> NvmeInterface<D> {
         let mut cmd = NvmeCommonCommand::new();
         cmd.opcode = 0x09;
         cmd.command_id = 0x2;
-        cmd.nsid = 1;
+        cmd.nsid = 0;
         cmd.cdw10 = 0x7;
         self.submit_sync_command(cmd);
         
@@ -154,7 +153,7 @@ impl<D: DmaAllocator> NvmeInterface<D> {
         let mut cmd = NvmeCreateCq::new();
         cmd.opcode = 0x05;
         cmd.command_id = 0x3;
-        cmd.nsid = 1;
+        cmd.nsid = 0;
         cmd.prp1 = cq_pa as u64;
         cmd.cqid = 1;
         cmd.qsize = 1023;
@@ -167,7 +166,7 @@ impl<D: DmaAllocator> NvmeInterface<D> {
         let mut cmd = NvmeCreateSq::new();
         cmd.opcode = 0x01;
         cmd.command_id = 0x4;
-        cmd.nsid = 1;
+        cmd.nsid = 0;
         cmd.prp1 = sq_pa as u64;
         cmd.sqid = 1;
         cmd.qsize = 1023;
@@ -215,6 +214,8 @@ impl<D: DmaAllocator> NvmeInterface<D> {
         cmd.prp1 = addr as u64;
         cmd.command_id = 101;
         cmd.length = 1;
+        cmd.control = 0x8000;
+        cmd.dsmgmt = 0x7;
         cmd.slba = block_id as u64;
 
         //transfer to common command
@@ -265,6 +266,8 @@ impl<D: DmaAllocator> NvmeInterface<D> {
         cmd.length = 1;
         cmd.command_id = 100;
         cmd.slba = block_id as u64;
+        cmd.control = 0;
+        cmd.dsmgmt = 0;
 
         // transmute to common command
         let common_cmd = unsafe { core::mem::transmute(cmd) };
