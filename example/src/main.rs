@@ -10,8 +10,10 @@ mod console;
 
 mod lang_items;
 mod sbi;
+mod pci_scan;
 mod nvme;
 
+use crate::pci_scan::pci_scan;
 
 global_asm!(include_str!("entry.asm"));
 pub fn clear_bss() {
@@ -47,12 +49,12 @@ pub fn init_heap() {
 
 #[no_mangle]
 pub fn rust_main() -> ! {
-
     clear_bss();
     init_heap();
     println!("Hello, world!");
 
+    pci_scan();
     nvme::nvme_test();
     
-    panic!("Unreachable in rust_main!");
+    panic!("+++++++++ NVME test has been completed +++++++++");
 }

@@ -41,7 +41,6 @@ pub fn config_pci(){
         write_volatile(ptr, 0x4);
     }
 
-
     let ptr = 0x30008010 as *mut u32;
     unsafe {
         write_volatile(ptr, 0x40000000);
@@ -61,7 +60,7 @@ pub fn config_pci(){
 }
 
 pub fn nvme_test() ->!{
-    config_pci();
+    //config_pci();
     let nvme = NvmeInterface::<DmaProvider>::new(0x40000000);
 
     let buf1:&[u8] = &[1u8;512];
