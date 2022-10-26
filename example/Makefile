@@ -1,5 +1,11 @@
-1:
-	rust-objcopy --binary-architecture=riscv64 target/riscv64gc-unknown-none-elf/release/os -O binary os.bin
+build:
+	cargo build --release
+
+osbin: build
+	rust-objcopy --binary-architecture=riscv64 target/riscv64gc-unknown-none-elf/release/example -O binary os.bin
+
+clean:
+	cargo clean
 
 qemu: 
 	qemu-system-riscv64 \
@@ -9,10 +15,11 @@ qemu:
 		-kernel os.bin
 
 
-qemu-nvme:
+qemu-nvme: osbin
 	qemu-system-riscv64 \
 		-machine virt \
 		-serial mon:stdio \
+		-display none \
 		-bios default \
 		-kernel os.bin \
 		-drive file=nvme.img,if=none,id=nvm -device nvme,serial=deadbeef,drive=nvm 

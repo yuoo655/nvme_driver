@@ -76,6 +76,7 @@ dependencies = [
  "buddy_system_allocator",
  "lazy_static",
  "log",
+ "pci",
  "pci_device_drivers",
  "sbi-rt",
 ]
@@ -142,6 +143,15 @@ name = "nb"
 version = "1.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "546c37ac5d9e56f55e73b677106873d9d9f5190605e41a856503623648488cae"
+
+[[package]]
+name = "pci"
+version = "0.1.0"
+source = "git+https://github.com/elliott10/pci-rs.git?rev=6441576c#6441576cbf3e056b7b2f33b8363c5e01cb86d9b0"
+dependencies = [
+ "bitflags",
+ "log",
+]
 
 [[package]]
 name = "pci_device_drivers"
