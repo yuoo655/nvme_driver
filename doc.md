@@ -1,3 +1,13 @@
+# nvme 设备初始化步骤
+第一，设置映射设备的bar空间到内核的虚拟地址空间当中，通过调用ioremap函数，将Controller的nvme寄存器映射到内核后，可以通过writel, readl这类函数直接读写寄存器。
+
+第二, 完成 DMA mask设置、pci总线中断分配、读取并配置 queue depth、stride 等参数
+
+第三，设置admin queue，admin queue设置之后，才能发送nvme admin Command。
+
+第四，添加nvme namespace设备，即/dev/nvme#n#，这样就可以对设备进行读写操作了。
+
+第五，添加nvme Controller设备，即/dev/nvme#，提供ioctl接口。这样userspace就可以通过ioctl系统调用发送nvme admin command。
 
 # pci设备
 https://medium.com/@michael2012zhao_67085/understanding-pci-node-in-fdt-769a894a13cc
@@ -5,17 +15,11 @@ https://medium.com/@michael2012zhao_67085/understanding-pci-node-in-fdt-769a894a
 
 # BAR是pcie设备上的控制器提供给os的一组寄存器.  用来接收命令
 bar
-
-NVMe驱动解析-关键的BAR空间 
-
-https://mp.weixin.qq.com/s/mCm7rDpprAY6M8bdFpxmJA
-
-http://www.ssdfans.com/?p=8210
+NVMe驱动解析-关键的BAR空间 https://mp.weixin.qq.com/s/mCm7rDpprAY6M8bdFpxmJA
+**http://www.ssdfans.com/?p=8210
 
 http://www.ssdfans.com/?p=8171
-
 http://www.ssdfans.com/?p=8171
-
 http://www.ssdfans.com/?p=8210
 
 
@@ -24,16 +28,11 @@ http://www.ssdfans.com/?p=8210
 
 
 设备内存用page划分
-
 Physical Region Page
 
 # prp
-用一个简单的例子窥探NVMe的PRP规则 
-
-https://mp.weixin.qq.com/s/9oFnJ9JWmGIh-mgVz3jk4Q
-
+用一个简单的例子窥探NVMe的PRP规则 https://mp.weixin.qq.com/s/9oFnJ9JWmGIh-mgVz3jk4Q
 http://www.ssdfans.com/?p=8173
-
 http://www.ssdfans.com/?p=8141
 
 
@@ -45,8 +44,7 @@ https://www.bilibili.com/read/cv17063262
 
 
 # NVMe驱动解析-响应I/O请求
-https://mp.weixin.qq.com/s?__biz=MzIyNDU0ODk4OA==&mid=2247483711&idx=1&sn=726890a3d3729d5b688a1f51a95900e5&
-chksm=e80c002cdf7b893a6cce50fd5387d10e3ebdbf49804d89d37c79315b7e7d5279b6759d361ccf&scene=126&&sessionid=1662083002#rd
+https://mp.weixin.qq.com/s?__biz=MzIyNDU0ODk4OA==&mid=2247483711&idx=1&sn=726890a3d3729d5b688a1f51a95900e5&chksm=e80c002cdf7b893a6cce50fd5387d10e3ebdbf49804d89d37c79315b7e7d5279b6759d361ccf&scene=126&&sessionid=1662083002#rd
 
 ## Device-to-device memory-transfer offload with P2PDMA
 https://lwn.net/Articles/767281/
@@ -58,7 +56,6 @@ It is thus possible for a driver to configure a PCI DMA operation to perform tra
 
 # linux地址空间  pcie dma
 https://www.oreilly.com/library/view/linux-device-drivers/0596005903/ch15.html
-
 NVMe驱动解析-DMA传输 https://mp.weixin.qq.com/s/iF6LHniCjYCZ1kAnw3x9cQ
 
 
@@ -167,8 +164,54 @@ struct nvme_bar {
 
 
 # 更多参考
-<https://blog.csdn.net/panzhenjie/article/details/51581063>
 
+<https://blog.csdn.net/panzhenjie/article/details/51581063>
 <https://nvmexpress.org/developers/nvme-specification/>
 
 
+
+
+/*
+Doorbell  Stride  (DSTRD):  Each  Submission  Queue  and  Completion  Queue  
+Doorbell  register  is  32-bits  in  size
+This  register  indicates  the  stride  between  
+doorbell registers. The stride is specified as (2 ^ (2 + DSTRD)) in bytes. A value 
+of 0h indicates a stride of 4 bytes, where the doorbell registers are packed without 
+reserved space between each register. 
+*/
+
+
+
+
+
+
+
+
+
+
+pci_register_host_bridge
+
+    --pci_setup_device
+
+
+
+
+pci_assign_resource
+--------pci_scan_device--------
+[    0.336150] pci_scan_child_bus_extend scanning bus
+
+
+
+pci_assign_resource
+
+_pci_assign_resource
+
+__pci_assign_resource
+
+
+assign_requested_resources_sorted
+bus_for_each_dev
+__assign_resources_sorted
+
+
+pci_assign_irq
