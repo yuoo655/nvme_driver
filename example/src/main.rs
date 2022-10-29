@@ -53,7 +53,7 @@ pub fn rust_main() -> ! {
     init_heap();
     println!("Hello, world!");
 
-    pci_scan();
+    //pci_scan();
     nvme::nvme_test();
     
     panic!("+++++++++ NVME test has been completed +++++++++");
