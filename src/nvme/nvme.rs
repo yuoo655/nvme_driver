@@ -213,7 +213,7 @@ impl<D: DmaAllocator> NvmeInterface<D> {
         cmd.nsid = 1;
         cmd.prp1 = addr as u64;
         cmd.command_id = 101;
-        cmd.length = 1;
+        cmd.length = 0;
         cmd.control = 0x8000;
         cmd.dsmgmt = 0x7;
         cmd.slba = block_id as u64;
@@ -263,7 +263,7 @@ impl<D: DmaAllocator> NvmeInterface<D> {
         let mut cmd = NvmeRWCommand::new_write_command();
         cmd.nsid = 1;
         cmd.prp1 = addr as u64;
-        cmd.length = 1;
+        cmd.length = 0;
         cmd.command_id = 100;
         cmd.slba = block_id as u64;
         cmd.control = 0;
