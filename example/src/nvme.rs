@@ -60,7 +60,7 @@ pub fn config_pci(){
 }
 
 pub fn nvme_test() ->!{
-    //config_pci();
+    config_pci();
     let nvme = NvmeInterface::<DmaProvider>::new(0x40000000);
 
     let buf1:&[u8] = &[1u8;512];
