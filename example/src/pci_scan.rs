@@ -61,13 +61,7 @@ unsafe fn enable(loc: Location, paddr: u64) -> Option<usize> {
 
     if paddr != 0 {
         // reveal PCI regs by setting paddr
-        let bar0_raw = am.read32(ops, loc, BAR0);
         am.write32(ops, loc, BAR0, (paddr & !0xfff) as u32); //Only for 32-bit decoding
-        debug!(
-            "BAR0 set from {:#x} to {:#x}",
-            bar0_raw,
-            am.read32(ops, loc, BAR0)
-        );
     }
 
     // 23 and lower are used
