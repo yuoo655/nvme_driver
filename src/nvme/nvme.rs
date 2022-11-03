@@ -58,7 +58,7 @@ impl<D: DmaAllocator, I: IrqController> NvmeInterface<D, I> {
 
 impl<D: DmaAllocator, I: IrqController> NvmeInterface<D, I> {
 
-    pub fn submit_sync_command(&mut self, mut cmd: NvmeCommonCommand){        
+    pub fn submit_sync_command(&mut self, cmd: NvmeCommonCommand){        
         let mut admin_queue = self.admin_queue.lock();
 
         let dbs = self.bar + NVME_REG_DBS;
@@ -92,7 +92,6 @@ impl<D: DmaAllocator, I: IrqController> NvmeInterface<D, I> {
 
         let sq_dma_pa = admin_queue.sq_pa as u32;
         let cq_dma_pa = admin_queue.cq_pa as u32;
-        let data_dma_pa = admin_queue.data_pa as u64;
 
         // sq depth
         let aqa_low_16 = 31_u16;
@@ -101,18 +100,18 @@ impl<D: DmaAllocator, I: IrqController> NvmeInterface<D, I> {
         let aqa = (aqa_high_16 as u32) << 16 | aqa_low_16 as u32;
         let aqa_address = bar + NVME_REG_AQA;
 
-        // 将admin queue配置信息写入nvme设备寄存器AQA (admin_queue_attributes)
+        // 将admin queue配置信息(sq/cq depth)写入nvme设备寄存器AQA(Admin Queue Attributes)
         unsafe {
             write_volatile(aqa_address as *mut u32, aqa);
         }
 
-        // 将admin queue的sq dma物理地址写入nvme设备上的寄存器ASQ
+        // 将admin queue的sq dma物理地址写入nvme设备上的寄存器ASQ(Admin SQ Base Address)
         let asq_address = bar + NVME_REG_ASQ;
         unsafe {
             write_volatile(asq_address as *mut u32, sq_dma_pa);
         }
 
-        // 将admin queue的cq dma物理地址写入nvme设备上的寄存器ACQ
+        // 将admin queue的cq dma物理地址写入nvme设备上的寄存器ACQ(Admin CQ Base Address)
         let acq_address = bar + NVME_REG_ACQ;
         unsafe {
             write_volatile(acq_address as *mut u32, cq_dma_pa);
@@ -128,16 +127,6 @@ impl<D: DmaAllocator, I: IrqController> NvmeInterface<D, I> {
 
         let _dev_status = unsafe { read_volatile((bar + NVME_REG_CSTS) as *mut u32) };
         // warn!("nvme status {}", _dev_status);
-
-
-        // config identify
-        // let mut cmd = NvmeIdentify::new();
-        // cmd.prp1 = data_dma_pa;
-        // cmd.command_id = 0x1018; //random number
-        // cmd.nsid = 1;
-        // let common_cmd = unsafe { core::mem::transmute(cmd) };
-        // drop(admin_queue);
-        // self.submit_sync_command(common_cmd);
 
     }
 
@@ -310,12 +299,46 @@ impl<D: DmaAllocator, I: IrqController> NvmeInterface<D, I> {
 
     pub fn nvme_poll_irqdisable(&self){
 
-
         I::disable_irq(self.irq);
 
         I::enable_irq(self.irq);
     }
 
+
+
+    pub fn nvme_poll_cq(&self) -> i32 {
+
+        let mut head = self.io_queues[0].lock().cq_head;
+        let mut phase = self.io_queues[0].lock().cq_phase;
+
+        let q_depth = self.io_queues[0].lock().q_depth;
+
+        let mut found = 0;
+
+        
+
+        loop {
+            let cqe = self.io_queues[0].lock().cq[head].read();
+
+            if cqe.status & 1 != phase as u16 {
+                break;
+            }
+
+            found += 1;
+            head += 1;
+            if head == q_depth {
+                head = 0;
+                phase ^= 1;
+            }
+
+        }
+
+        if found == 0 {
+            return found;
+        }
+
+        found
+    }
 
     // pub fn nvme_poll_cq(struct nvme_queue *nvmeq, struct io_comp_batch *iob) -> usize{
 	//     let found = 0;

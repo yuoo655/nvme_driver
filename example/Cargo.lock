@@ -78,6 +78,7 @@ dependencies = [
  "log",
  "pci",
  "pci_device_drivers",
+ "riscv 0.9.0",
  "sbi-rt",
 ]
 
@@ -98,7 +99,7 @@ dependencies = [
  "cfg-if",
  "cortex-a",
  "raw-cpuid",
- "riscv",
+ "riscv 0.7.0",
  "spin 0.9.4",
  "tock-registers",
  "x86_64",
@@ -196,6 +197,17 @@ dependencies = [
  "bit_field",
  "embedded-hal",
  "riscv-target",
+]
+
+[[package]]
+name = "riscv"
+version = "0.9.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "73fc4bc7113424814738fe79755a5764e392b3d4d1bc757e6aa6f61cede32095"
+dependencies = [
+ "bare-metal",
+ "bit_field",
+ "embedded-hal",
 ]
 
 [[package]]

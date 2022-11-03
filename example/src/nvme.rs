@@ -87,6 +87,10 @@ pub fn nvme_test() ->!{
     config_pci();
     let nvme = NvmeInterface::<DmaProvider, IrqProvider>::new(0x40000000);
 
+    // use core::ptr::read_volatile;
+    // let dev_ctrl_cap = unsafe { read_volatile((0x40000000) as *const u32) };
+    // println!("dev_ctrl_cap: {:#x?}", dev_ctrl_cap);
+
     let buf1:&[u8] = &[1u8;512];
     let _r = nvme.write_block(0, &buf1);
     let mut read_buf = [0u8; 512];
