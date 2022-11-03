@@ -135,10 +135,8 @@ impl<D: DmaAllocator> NvmeInterface<D> {
     }
 
     pub fn nvme_alloc_io_queue(&mut self) {
-        let cq_pa = self.admin_queue.lock().cq_pa;
-        let sq_pa = self.admin_queue.lock().sq_pa;
-
-        
+        let cq_pa = self.io_queues[0].lock().cq_pa;
+        let sq_pa = self.io_queues[0].lock().sq_pa;
 
         // nvme_set_queue_count
         let mut cmd = NvmeCommonCommand::new();
@@ -195,9 +193,8 @@ impl<D: DmaAllocator> NvmeInterface<D> {
     // length = 1 = 512B
     // 1 SLBA = 512B
     pub fn read_block(&self, block_id: usize, read_buf: &mut [u8]){
-        let io_queue = self.io_queues[0].lock();
+        let mut io_queue = self.io_queues[0].lock();
         let db_offset = io_queue.db_offset;
-        let mut admin_queue = self.admin_queue.lock();
 
         let bar = self.bar;
 
@@ -221,18 +218,18 @@ impl<D: DmaAllocator> NvmeInterface<D> {
         //transfer to common command
         let common_cmd = unsafe { core::mem::transmute(cmd) };
 
-        let tail = admin_queue.sq_tail;
+        let tail = io_queue.sq_tail;
 
         // write command to sq
-        admin_queue.sq[tail].write(common_cmd);
-        admin_queue.sq_tail += 1;
+        io_queue.sq[tail].write(common_cmd);
+        io_queue.sq_tail += 1;
 
         // write doorbell register
         unsafe { write_volatile((dbs + db_offset) as *mut u32, (tail + 1) as u32) }
 
         // wait for command complete
         loop {
-            let status = admin_queue.cq[tail].read();
+            let status = io_queue.cq[tail].read();
             if status.status != 0 {
                 // warn!("nvme cq :{:#x?}", status);
 
@@ -249,9 +246,8 @@ impl<D: DmaAllocator> NvmeInterface<D> {
     // length = 1 = 512B
     pub fn write_block(&self, block_id: usize, write_buf: &[u8]){
         // warn!("write block");
-        let io_queue = self.io_queues[0].lock();
+        let mut io_queue = self.io_queues[0].lock();
         let db_offset = io_queue.db_offset;
-        let mut admin_queue = self.admin_queue.lock();
         let bar = self.bar;
         let dbs = bar + NVME_REG_DBS;
 
@@ -272,21 +268,21 @@ impl<D: DmaAllocator> NvmeInterface<D> {
         // transmute to common command
         let common_cmd = unsafe { core::mem::transmute(cmd) };
 
-        let mut tail = admin_queue.sq_tail;
+        let mut tail = io_queue.sq_tail;
         if tail > 1023 {
             tail = 0;
         }
 
         // push command to sq
-        admin_queue.sq[tail].write(common_cmd);
-        admin_queue.sq_tail += 1;
+        io_queue.sq[tail].write(common_cmd);
+        io_queue.sq_tail += 1;
 
         // write doorbell register
         unsafe { write_volatile((dbs + db_offset) as *mut u32, (tail + 1) as u32) }
 
         // wait for command complete
         loop {
-            let status = admin_queue.cq[tail].read();
+            let status = io_queue.cq[tail].read();
             if status.status != 0 {
                 // warn!("nvme cq :{:#x?}", status);
 
