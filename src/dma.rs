@@ -1,5 +1,3 @@
-
-
 pub trait DmaAllocator {
     fn dma_alloc(size: usize) -> usize;
 

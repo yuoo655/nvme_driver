@@ -3,6 +3,7 @@ use core::sync::atomic::*;
 
 use pci_device_drivers::NvmeInterface;
 use pci_device_drivers::DmaAllocator;
+use pci_device_drivers::IrqController;
 
 
 use lazy_static::lazy_static;
@@ -59,9 +60,32 @@ pub fn config_pci(){
 
 }
 
+
+
+
+pub struct IrqProvider;
+
+impl IrqController for IrqProvider{
+    fn enable_irq(irq: usize){
+        
+    }
+
+    fn disable_irq(irq: usize){
+        
+    }
+
+    fn register_irq(irq: usize, handler: fn(usize)){
+        
+    }
+
+    fn unregister_irq(irq: usize){
+        
+    }
+}
+
 pub fn nvme_test() ->!{
     config_pci();
-    let nvme = NvmeInterface::<DmaProvider>::new(0x40000000);
+    let nvme = NvmeInterface::<DmaProvider, IrqProvider>::new(0x40000000);
 
     let buf1:&[u8] = &[1u8;512];
     let _r = nvme.write_block(0, &buf1);
