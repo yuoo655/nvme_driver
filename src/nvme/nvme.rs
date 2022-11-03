@@ -145,8 +145,6 @@ impl<D: DmaAllocator, I: IrqController> NvmeInterface<D, I> {
         let cq_pa = self.io_queues[0].lock().cq_pa;
         let sq_pa = self.io_queues[0].lock().sq_pa;
 
-        
-
         // nvme_set_queue_count
         let mut cmd = NvmeCommonCommand::new();
         cmd.opcode = 0x09;
