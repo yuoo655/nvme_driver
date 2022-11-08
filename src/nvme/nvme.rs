@@ -2,25 +2,30 @@ use alloc::sync::Arc;
 use alloc::vec::Vec;
 use alloc::vec;
 use core::ptr::{read_volatile, write_volatile};
+use core::marker::PhantomData;
 
+use crate::irq::IrqController;
 use crate::dma::DmaAllocator;
 use super::nvme_defs::*;
 use super::nvme_queue::*;
-
 use lock::Mutex;
 
 
-pub struct NvmeInterface<D: DmaAllocator> {
+pub struct NvmeInterface<D: DmaAllocator, I: IrqController> {
+
+    irq_data: PhantomData<I>,
 
     admin_queue: Arc<Mutex<NvmeQueue<D>>>,
 
     io_queues: Vec<Arc<Mutex<NvmeQueue<D>>>>,
 
     bar: usize,
+
+    irq: usize,
 }
 
 
-impl<D: DmaAllocator> NvmeInterface<D> {
+impl<D: DmaAllocator, I: IrqController> NvmeInterface<D, I> {
     pub fn new(bar: usize) -> Self {
 
         let admin_queue = Arc::new(Mutex::new(NvmeQueue::new(0, 0)));
@@ -28,9 +33,11 @@ impl<D: DmaAllocator> NvmeInterface<D> {
         let io_queues = vec![Arc::new(Mutex::new(NvmeQueue::new(1, 0x8)))];
 
         let mut interface = NvmeInterface {
+            irq_data: PhantomData,
             admin_queue,
             io_queues,
             bar,
+            irq: 33,
         };
 
         interface.init();
@@ -49,9 +56,9 @@ impl<D: DmaAllocator> NvmeInterface<D> {
 
 
 
-impl<D: DmaAllocator> NvmeInterface<D> {
+impl<D: DmaAllocator, I: IrqController> NvmeInterface<D, I> {
 
-    pub fn submit_sync_command(&mut self, mut cmd: NvmeCommonCommand){        
+    pub fn submit_sync_command(&mut self, cmd: NvmeCommonCommand){        
         let mut admin_queue = self.admin_queue.lock();
 
         let dbs = self.bar + NVME_REG_DBS;
@@ -81,11 +88,9 @@ impl<D: DmaAllocator> NvmeInterface<D> {
         let admin_queue = self.admin_queue.lock();
 
         let bar = self.bar;
-        let dbs = bar + NVME_REG_DBS;
 
         let sq_dma_pa = admin_queue.sq_pa as u32;
         let cq_dma_pa = admin_queue.cq_pa as u32;
-        let data_dma_pa = admin_queue.data_pa as u64;
 
         // sq depth
         let aqa_low_16 = 31_u16;
@@ -94,18 +99,18 @@ impl<D: DmaAllocator> NvmeInterface<D> {
         let aqa = (aqa_high_16 as u32) << 16 | aqa_low_16 as u32;
         let aqa_address = bar + NVME_REG_AQA;
 
-        // 将admin queue配置信息写入nvme设备寄存器AQA (admin_queue_attributes)
+        // 将admin queue配置信息(sq/cq depth)写入nvme设备寄存器AQA(Admin Queue Attributes)
         unsafe {
             write_volatile(aqa_address as *mut u32, aqa);
         }
 
-        // 将admin queue的sq dma物理地址写入nvme设备上的寄存器ASQ
+        // 将admin queue的sq dma物理地址写入nvme设备上的寄存器ASQ(Admin SQ Base Address)
         let asq_address = bar + NVME_REG_ASQ;
         unsafe {
             write_volatile(asq_address as *mut u32, sq_dma_pa);
         }
 
-        // 将admin queue的cq dma物理地址写入nvme设备上的寄存器ACQ
+        // 将admin queue的cq dma物理地址写入nvme设备上的寄存器ACQ(Admin CQ Base Address)
         let acq_address = bar + NVME_REG_ACQ;
         unsafe {
             write_volatile(acq_address as *mut u32, cq_dma_pa);
@@ -121,17 +126,6 @@ impl<D: DmaAllocator> NvmeInterface<D> {
 
         let _dev_status = unsafe { read_volatile((bar + NVME_REG_CSTS) as *mut u32) };
         // warn!("nvme status {}", _dev_status);
-
-
-        // config identify
-        // let mut cmd = NvmeIdentify::new();
-        // cmd.prp1 = data_dma_pa;
-        // cmd.command_id = 0x1018; //random number
-        // cmd.nsid = 1;
-        // let common_cmd = unsafe { core::mem::transmute(cmd) };
-        // drop(admin_queue);
-        // self.submit_sync_command(common_cmd);
-
     }
 
     pub fn nvme_alloc_io_queue(&mut self) {
@@ -176,7 +170,7 @@ impl<D: DmaAllocator> NvmeInterface<D> {
 }
 
 
-impl<D: DmaAllocator> NvmeInterface<D> {
+impl<D: DmaAllocator, I: IrqController> NvmeInterface<D, I> {
 
     // 每个NVMe命令中有两个域：PRP1和PRP2，Host就是通过这两个域告诉SSD数据在内存中的位置或者数据需要写入的地址
     // 首先对prp1进行读写，如果数据还没完，就看数据量是不是在一个page内，在的话，只需要读写prp2内存地址就可以了，数据量大于1个page，就需要读出prp list
@@ -190,8 +184,8 @@ impl<D: DmaAllocator> NvmeInterface<D> {
     // linux中对应实现 nvme_pci_setup_prps
 
     // SLBA = start logical block address
-    // length = 1 = 512B
     // 1 SLBA = 512B
+    // length = 0 = 512B
     pub fn read_block(&self, block_id: usize, read_buf: &mut [u8]){
         let mut io_queue = self.io_queues[0].lock();
         let db_offset = io_queue.db_offset;
@@ -243,7 +237,7 @@ impl<D: DmaAllocator> NvmeInterface<D> {
     // prp1 = write_buf physical address
     // prp2 = 0
     // SLBA = start logical block address
-    // length = 1 = 512B
+    // length = 0 = 512B
     pub fn write_block(&self, block_id: usize, write_buf: &[u8]){
         // warn!("write block");
         let mut io_queue = self.io_queues[0].lock();
@@ -292,4 +286,17 @@ impl<D: DmaAllocator> NvmeInterface<D> {
             }
         }
     }
+}
+
+
+
+impl<D: DmaAllocator, I: IrqController> NvmeInterface<D, I> {
+
+    pub fn nvme_poll_irqdisable(&self){
+
+        I::disable_irq(self.irq);
+
+        I::enable_irq(self.irq);
+    }
+
 }

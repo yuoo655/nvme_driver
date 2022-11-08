@@ -3,6 +3,7 @@ use core::sync::atomic::*;
 
 use pci_device_drivers::NvmeInterface;
 use pci_device_drivers::DmaAllocator;
+use pci_device_drivers::IrqController;
 
 
 use lazy_static::lazy_static;
@@ -38,9 +39,54 @@ use core::ptr::write_volatile;
 pub fn config_pci(){
     let ptr = 0x30008010 as *mut u32;
     unsafe {
+        write_volatile(ptr, 0xffffffff);
+    }
+
+    let ptr = 0x30008010 as *mut u32;
+    unsafe {
         write_volatile(ptr, 0x4);
     }
 
+    let ptr = 0x30008018 as *mut u32;
+    unsafe {
+        write_volatile(ptr, 0xffffffff);
+    }
+
+    let ptr = 0x30008018 as *mut u32;
+    unsafe {
+        write_volatile(ptr, 0);
+    }
+
+    let ptr = 0x3000801C as *mut u32;
+    unsafe {
+        write_volatile(ptr, 0xffffffff);
+    }
+
+    let ptr = 0x3000801C as *mut u32;
+    unsafe {
+        write_volatile(ptr, 0);
+    }
+
+
+    let ptr = 0x30008020 as *mut u32;
+    unsafe {
+        write_volatile(ptr, 0xffffffff);
+    }
+
+    let ptr = 0x30008020 as *mut u32;
+    unsafe {
+        write_volatile(ptr, 0);
+    }
+
+    let ptr = 0x30008024 as *mut u32;
+    unsafe {
+        write_volatile(ptr, 0xffffffff);
+    }
+
+    let ptr = 0x30008024 as *mut u32;
+    unsafe {
+        write_volatile(ptr, 0);
+    }
     let ptr = 0x30008010 as *mut u32;
     unsafe {
         write_volatile(ptr, 0x40000000);
@@ -51,17 +97,30 @@ pub fn config_pci(){
         write_volatile(ptr, 0x100006);
     }
 
-    // let ptr = 0x3000803c as *mut u32;
+    let ptr = 0x3000803c as *mut u32;
 
-    // unsafe {
-    //     write_volatile(ptr, 0x21);
-    // }
+    unsafe {
+        write_volatile(ptr, 0x21);
+    }
 
+}
+
+
+pub struct IrqProvider;
+
+impl IrqController for IrqProvider{
+    fn enable_irq(irq: usize){
+        
+    }
+
+    fn disable_irq(irq: usize){
+        
+    }
 }
 
 pub fn nvme_test() ->!{
     config_pci();
-    let nvme = NvmeInterface::<DmaProvider>::new(0x40000000);
+    let nvme = NvmeInterface::<DmaProvider, IrqProvider>::new(0x40000000);
 
     let buf1:&[u8] = &[1u8;512];
     let _r = nvme.write_block(0, &buf1);
@@ -75,5 +134,8 @@ pub fn nvme_test() ->!{
     let _r = nvme.read_block(1, &mut read_buf);
     println!("read_buf: {:?}", read_buf);
 
+    loop{
+
+    }
     panic!("Unreachable in rust_main!");
 }

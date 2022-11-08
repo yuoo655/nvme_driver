@@ -59,64 +59,26 @@ unsafe fn enable(loc: Location, paddr: u64) -> Option<usize> {
     let ops = &PortOpsImpl;
     let am = PCI_ACCESS;
 
-    if paddr != 0 {
-        // reveal PCI regs by setting paddr
-        am.write32(ops, loc, BAR0, (paddr & !0xfff) as u32); //Only for 32-bit decoding
-    }
+    am.write32(ops, loc, BAR0, (paddr & !0xfff) as u32); //Only for 32-bit decoding
+    // if paddr != 0 {
+    //     // reveal PCI regs by setting paddr
+    // }
 
     // 23 and lower are used
     static mut MSI_IRQ: u32 = 23;
 
     let _orig = am.read16(ops, loc, PCI_COMMAND);
-    // IO Space | MEM Space | Bus Mastering | Special Cycles | PCI Interrupt Disable
-    // am.write32(ops, loc, PCI_COMMAND, (orig | 0x40f) as u32);
 
-    // find MSI cap
-    let mut msi_found = false;
-    let mut cap_ptr = am.read8(ops, loc, PCI_CAP_PTR) as u16;
-    let mut assigned_irq = None;
-    while cap_ptr > 0 {
-        let cap_id = am.read8(ops, loc, cap_ptr);
-        if cap_id == PCI_CAP_ID_MSI {
-            let orig_ctrl = am.read32(ops, loc, cap_ptr + PCI_MSI_CTRL_CAP);
-            // The manual Volume 3 Chapter 10.11 Message Signalled Interrupts
-            // 0 is (usually) the apic id of the bsp.
-            //am.write32(ops, loc, cap_ptr + PCI_MSI_ADDR, 0xfee00000 | (0 << 12));
-            am.write32(ops, loc, cap_ptr + PCI_MSI_ADDR, 0xfee00000);
-            MSI_IRQ += 1;
-            let irq = MSI_IRQ;
-            assigned_irq = Some(irq as usize);
-            // we offset all our irq numbers by 32
-            if (orig_ctrl >> 16) & (1 << 7) != 0 {
-                // 64bit
-                am.write32(ops, loc, cap_ptr + PCI_MSI_DATA_64, irq + 32);
-            } else {
-                // 32bit
-                am.write32(ops, loc, cap_ptr + PCI_MSI_DATA_32, irq + 32);
-            }
 
-            // enable MSI interrupt, assuming 64bit for now
-            am.write32(ops, loc, cap_ptr + PCI_MSI_CTRL_CAP, orig_ctrl | 0x10000);
-            debug!(
-                "MSI control {:#b}, enabling MSI interrupt {}",
-                orig_ctrl >> 16,
-                irq
-            );
-            msi_found = true;
-        }
-        debug!("PCI device has cap id {} at {:#X}", cap_id, cap_ptr);
-        cap_ptr = am.read8(ops, loc, cap_ptr + 1) as u16;
-    }
-
-    if !msi_found {
+    // if !msi_found {
         // am.write16(ops, loc, PCI_COMMAND, (0x2) as u16);
         am.write16(ops, loc, PCI_COMMAND, 0x6);
         am.write32(ops, loc, PCI_INTERRUPT_LINE, 33);
-        debug!("MSI not found, using PCI interrupt");
-    }
+        // debug!("MSI not found, using PCI interrupt");
+    // }
 
-    debug!("pci device enable done");
-    assigned_irq
+    // debug!("pci device enable done");
+    None
 }
 
 pub const PCI_COMMAND: u16 = 0x04;

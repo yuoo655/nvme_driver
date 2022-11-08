@@ -12,6 +12,7 @@ pci = { git = "https://github.com/elliott10/pci-rs.git", rev = "6441576c" }
 pci_device_drivers = {path = "../"}
 lazy_static = { version = "1.4", features = ["spin_no_std"] }
 buddy_system_allocator = "0.6"
+riscv = "0.9"
 
 [profile.release]
 debug = true
