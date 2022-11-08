@@ -1,18 +1,17 @@
 use alloc::sync::Arc;
-use alloc::vec::Vec;
 use alloc::vec;
-use core::ptr::{read_volatile, write_volatile};
+use alloc::vec::Vec;
 use core::marker::PhantomData;
+use core::ptr::{read_volatile, write_volatile};
 
-use crate::irq::IrqController;
-use crate::dma::DmaAllocator;
 use super::nvme_defs::*;
 use super::nvme_queue::*;
+use crate::dma::DmaAllocator;
+use crate::irq::IrqController;
 use lock::Mutex;
-
+use lock::MutexGuard;
 
 pub struct NvmeInterface<D: DmaAllocator, I: IrqController> {
-
     irq_data: PhantomData<I>,
 
     admin_queue: Arc<Mutex<NvmeQueue<D>>>,
@@ -24,10 +23,10 @@ pub struct NvmeInterface<D: DmaAllocator, I: IrqController> {
     irq: usize,
 }
 
-
 impl<D: DmaAllocator, I: IrqController> NvmeInterface<D, I> {
+    // alloc dma memory for admin queue and io queues
+    // basic init for admin queue and io queues
     pub fn new(bar: usize) -> Self {
-
         let admin_queue = Arc::new(Mutex::new(NvmeQueue::new(0, 0)));
 
         let io_queues = vec![Arc::new(Mutex::new(NvmeQueue::new(1, 0x8)))];
@@ -47,20 +46,16 @@ impl<D: DmaAllocator, I: IrqController> NvmeInterface<D, I> {
 
     // config admin queue ,io queue
     pub fn init(&mut self) {
-
         self.nvme_configure_admin_queue();
 
         self.nvme_alloc_io_queue();
     }
 }
 
-
-
 impl<D: DmaAllocator, I: IrqController> NvmeInterface<D, I> {
-
-    pub fn submit_sync_command(&mut self, cmd: NvmeCommonCommand){        
+    // submit admin command and wait for completion
+    pub fn submit_sync_command(&mut self, cmd: NvmeCommonCommand) {
         let mut admin_queue = self.admin_queue.lock();
-
         let dbs = self.bar + NVME_REG_DBS;
 
         let sq_tail = admin_queue.sq_tail;
@@ -70,20 +65,22 @@ impl<D: DmaAllocator, I: IrqController> NvmeInterface<D, I> {
         admin_queue.sq_tail += 1;
 
         let admin_q_db = dbs + admin_queue.db_offset;
-        unsafe { write_volatile(admin_q_db as *mut u32, (sq_tail+1) as u32) }
+        unsafe { write_volatile(admin_q_db as *mut u32, (sq_tail + 1) as u32) }
 
         loop {
             let status = admin_queue.cq[cq_head].read();
             if status.status != 0 {
-                // warn!("nvme cq :{:#x?}", status);
-                unsafe { write_volatile((admin_q_db + 0x4) as *mut u32, (cq_head+1) as u32) }
+                unsafe { write_volatile((admin_q_db + 0x4) as *mut u32, (cq_head + 1) as u32) }
                 admin_queue.cq_head += 1;
                 break;
             }
         }
     }
 
-
+    // config admin queue
+    // 1. set admin queue(cq && sq) size
+    // 2. set admin queue(cq && sq) dma address
+    // 3. enable ctrl
     pub fn nvme_configure_admin_queue(&mut self) {
         let admin_queue = self.admin_queue.lock();
 
@@ -128,6 +125,10 @@ impl<D: DmaAllocator, I: IrqController> NvmeInterface<D, I> {
         // warn!("nvme status {}", _dev_status);
     }
 
+    // alloc io queue
+    // 1. set queue count through nvme_features
+    // 2. alloc io queue(cq) through admin command
+    // 3. alloc io queue(sq) through admin command
     pub fn nvme_alloc_io_queue(&mut self) {
         let cq_pa = self.io_queues[0].lock().cq_pa;
         let sq_pa = self.io_queues[0].lock().sq_pa;
@@ -139,7 +140,6 @@ impl<D: DmaAllocator, I: IrqController> NvmeInterface<D, I> {
         cmd.nsid = 0;
         cmd.cdw10 = 0x7;
         self.submit_sync_command(cmd);
-        
 
         //nvme create cq
         let mut cmd = NvmeCreateCq::new();
@@ -152,7 +152,6 @@ impl<D: DmaAllocator, I: IrqController> NvmeInterface<D, I> {
         cmd.cq_flags = NVME_QUEUE_PHYS_CONTIG | NVME_CQ_IRQ_ENABLED;
         let common_cmd = unsafe { core::mem::transmute(cmd) };
         self.submit_sync_command(common_cmd);
-
 
         // nvme create sq
         let mut cmd = NvmeCreateSq::new();
@@ -169,9 +168,7 @@ impl<D: DmaAllocator, I: IrqController> NvmeInterface<D, I> {
     }
 }
 
-
 impl<D: DmaAllocator, I: IrqController> NvmeInterface<D, I> {
-
     // 每个NVMe命令中有两个域：PRP1和PRP2，Host就是通过这两个域告诉SSD数据在内存中的位置或者数据需要写入的地址
     // 首先对prp1进行读写，如果数据还没完，就看数据量是不是在一个page内，在的话，只需要读写prp2内存地址就可以了，数据量大于1个page，就需要读出prp list
 
@@ -186,15 +183,7 @@ impl<D: DmaAllocator, I: IrqController> NvmeInterface<D, I> {
     // SLBA = start logical block address
     // 1 SLBA = 512B
     // length = 0 = 512B
-    pub fn read_block(&self, block_id: usize, read_buf: &mut [u8]){
-        let mut io_queue = self.io_queues[0].lock();
-        let db_offset = io_queue.db_offset;
-
-        let bar = self.bar;
-
-        let dbs = bar + NVME_REG_DBS;
-        // let db_offset = io_queue.db_offset;
-
+    pub fn read_block(&self, block_id: usize, read_buf: &mut [u8]) {
         // 这里dma addr 就是buffer的地址
         let ptr = read_buf.as_mut_ptr();
         let addr = D::virt_to_phys(ptr as usize);
@@ -212,41 +201,17 @@ impl<D: DmaAllocator, I: IrqController> NvmeInterface<D, I> {
         //transfer to common command
         let common_cmd = unsafe { core::mem::transmute(cmd) };
 
-        let tail = io_queue.sq_tail;
-
-        // write command to sq
-        io_queue.sq[tail].write(common_cmd);
-        io_queue.sq_tail += 1;
-
-        // write doorbell register
-        unsafe { write_volatile((dbs + db_offset) as *mut u32, (tail + 1) as u32) }
-
-        // wait for command complete
-        loop {
-            let status = io_queue.cq[tail].read();
-            if status.status != 0 {
-                // warn!("nvme cq :{:#x?}", status);
-
-                // write doorbell
-                unsafe { write_volatile((dbs + db_offset + 0x4) as *mut u32, (tail + 1) as u32) }
-                break;
-            }
-        }
+        let mut io_queue = self.io_queues[0].lock();
+        self.send_command(&mut io_queue, common_cmd);
+        self.nvme_poll_cq(&mut io_queue);
     }
 
     // prp1 = write_buf physical address
     // prp2 = 0
     // SLBA = start logical block address
-    // length = 0 = 512B
-    pub fn write_block(&self, block_id: usize, write_buf: &[u8]){
-        // warn!("write block");
-        let mut io_queue = self.io_queues[0].lock();
-        let db_offset = io_queue.db_offset;
-        let bar = self.bar;
-        let dbs = bar + NVME_REG_DBS;
-
+    // length = 1 = 512B
+    pub fn write_block(&self, block_id: usize, write_buf: &[u8]) {
         let ptr = write_buf.as_ptr();
-
         let addr = D::virt_to_phys(ptr as usize);
 
         // build nvme write command
@@ -262,41 +227,84 @@ impl<D: DmaAllocator, I: IrqController> NvmeInterface<D, I> {
         // transmute to common command
         let common_cmd = unsafe { core::mem::transmute(cmd) };
 
-        let mut tail = io_queue.sq_tail;
-        if tail > 1023 {
-            tail = 0;
-        }
-
-        // push command to sq
-        io_queue.sq[tail].write(common_cmd);
-        io_queue.sq_tail += 1;
-
-        // write doorbell register
-        unsafe { write_volatile((dbs + db_offset) as *mut u32, (tail + 1) as u32) }
-
-        // wait for command complete
-        loop {
-            let status = io_queue.cq[tail].read();
-            if status.status != 0 {
-                // warn!("nvme cq :{:#x?}", status);
-
-                // write doorbell
-                unsafe { write_volatile((dbs + db_offset + 0x4) as *mut u32, (tail + 1) as u32) }
-                break;
-            }
-        }
+        let mut io_queue = self.io_queues[0].lock();
+        self.send_command(&mut io_queue, common_cmd);
+        self.nvme_poll_cq(&mut io_queue);
     }
 }
 
-
-
 impl<D: DmaAllocator, I: IrqController> NvmeInterface<D, I> {
-
-    pub fn nvme_poll_irqdisable(&self){
-
+    pub fn nvme_poll_irqdisable(&self) {
         I::disable_irq(self.irq);
 
         I::enable_irq(self.irq);
     }
 
+    // write command to submission queue and write sq doorbell to notify nvme device
+    pub fn send_command(&self, nvmeq: &mut MutexGuard<NvmeQueue<D>>, cmd: NvmeCommonCommand) {
+        let sq_tail = nvmeq.sq_tail;
+        nvmeq.sq[sq_tail].write(cmd);
+
+        if (nvmeq.sq_tail + 1) == nvmeq.q_depth {
+            nvmeq.sq_tail = 0;
+        } else {
+            nvmeq.sq_tail += 1;
+        }
+
+        self.nvme_write_sq_db(nvmeq, true);
+    }
+
+    // check completion queue and update cq head cq doorbell until there is no pending command
+    pub fn nvme_poll_cq(&self, nvmeq: &mut MutexGuard<NvmeQueue<D>>) {
+        while self.nvme_cqe_pending(nvmeq) {
+            self.nvme_update_cq_head(nvmeq);
+            self.nvme_ring_cq_doorbell(nvmeq);
+        }
+    }
+
+    // check if there is completed command in completion queue
+    pub fn nvme_cqe_pending(&self, nvmeq: &mut MutexGuard<NvmeQueue<D>>) -> bool {
+        let cq_head = nvmeq.cq_head;
+        let cqe = nvmeq.cq[cq_head].read();
+        if (cqe.status & 1) == (nvmeq.cq_phase as u16) {
+            return true;
+        } else {
+            return false;
+        }
+    }
+
+    // notify nvme device we've completed the command
+    pub fn nvme_ring_cq_doorbell(&self, nvmeq: &mut MutexGuard<NvmeQueue<D>>) {
+        let cq_head = nvmeq.cq_head;
+        let q_db = self.bar + NVME_REG_DBS + nvmeq.db_offset;
+        unsafe { write_volatile((q_db + 0x4) as *mut u32, cq_head as u32) }
+    }
+
+    // write submission queue doorbell to notify nvme device
+    pub fn nvme_write_sq_db(&self, nvmeq: &mut MutexGuard<NvmeQueue<D>>, write_sq: bool) {
+        if !write_sq {
+            let mut next_tail = nvmeq.sq_tail + 1;
+            if next_tail == nvmeq.q_depth {
+                next_tail = 0;
+            }
+            if next_tail != nvmeq.last_sq_tail {
+                return;
+            }
+        }
+
+        let db = self.bar + NVME_REG_DBS + nvmeq.db_offset;
+        unsafe { write_volatile(db as *mut u32, nvmeq.sq_tail as u32) }
+        nvmeq.last_sq_tail = nvmeq.sq_tail;
+    }
+
+    // update completion queue head
+    pub fn nvme_update_cq_head(&self, nvmeq: &mut MutexGuard<NvmeQueue<D>>) {
+        let next_head = nvmeq.cq_head + 1;
+        if next_head == nvmeq.q_depth {
+            nvmeq.cq_head = 0;
+            nvmeq.cq_phase ^= 1;
+        } else {
+            nvmeq.cq_head = next_head;
+        }
+    }
 }
