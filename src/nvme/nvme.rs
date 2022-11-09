@@ -231,6 +231,48 @@ impl<D: DmaAllocator, I: IrqController> NvmeInterface<D, I> {
         self.send_command(&mut io_queue, common_cmd);
         self.nvme_poll_cq(&mut io_queue);
     }
+
+    fn send_read_command(&self, block_id:usize, read_buf: &mut [u8], cid: usize)-> usize{
+        // 这里dma addr 就是buffer的地址
+        let ptr = read_buf.as_mut_ptr();
+        let addr = D::virt_to_phys(ptr as usize);
+
+        // build nvme read command
+        let mut cmd = NvmeRWCommand::new_read_command();
+        cmd.nsid = 1;
+        cmd.prp1 = addr as u64;
+        cmd.command_id = cid as u16;
+        cmd.length = 0;
+        cmd.slba = block_id as u64;
+
+        //transfer to common command
+        let common_cmd = unsafe { core::mem::transmute(cmd) };
+
+        let mut io_queue = self.io_queues[0].lock();
+        self.send_command( &mut io_queue, common_cmd);
+        
+        cid as usize
+    }
+    fn send_write_command(&self, block_id:usize, write_buf: &[u8], cid: usize) -> usize{
+
+        let ptr = write_buf.as_ptr();
+        let addr = D::virt_to_phys(ptr as usize);
+        // build nvme write command
+        let mut cmd = NvmeRWCommand::new_write_command();
+        cmd.nsid = 1;
+        cmd.prp1 = addr as u64;
+        cmd.length = 0;
+        cmd.command_id = cid as u16;
+        cmd.slba = block_id as u64;
+        // transmute to common command
+        let common_cmd = unsafe { core::mem::transmute(cmd) };
+
+        let mut io_queue = self.io_queues[0].lock();
+        self.send_command( &mut io_queue, common_cmd);
+    
+        cid as usize
+    }
+
 }
 
 impl<D: DmaAllocator, I: IrqController> NvmeInterface<D, I> {
