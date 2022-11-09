@@ -112,7 +112,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "546c37ac5d9e56f55e73b677106873d9d9f5190605e41a856503623648488cae"
 
 [[package]]
-name = "pci_device_drivers"
+name = "nvme_driver"
 version = "0.1.0"
 dependencies = [
  "lock",
