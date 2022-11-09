@@ -349,4 +349,13 @@ impl<D: DmaAllocator, I: IrqController> NvmeInterface<D, I> {
             nvmeq.cq_head = next_head;
         }
     }
+
+    pub fn handle_irq(&self) {
+        let mut io_queue = self.io_queues[0].lock();
+
+        if self.nvme_cqe_pending(&mut io_queue){
+            self.nvme_update_cq_head(&mut io_queue);
+            self.nvme_ring_cq_doorbell(&mut io_queue);
+        }
+    }
 }
