@@ -192,7 +192,7 @@ impl<D: DmaAllocator, I: IrqController> NvmeInterface<D, I> {
     // prp1 = write_buf physical address
     // prp2 = 0
     // SLBA = start logical block address
-    // length = 1 = 512B
+    // length = 0 = 512B
     pub fn write_block(&self, block_id: usize, write_buf: &[u8]) {
         let ptr = write_buf.as_ptr();
         let addr = D::virt_to_phys(ptr as usize);
