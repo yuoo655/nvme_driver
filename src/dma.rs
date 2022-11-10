@@ -7,4 +7,3 @@ pub trait DmaAllocator {
 
     fn virt_to_phys(virt: usize) -> usize;
 }
-

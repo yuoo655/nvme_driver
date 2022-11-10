@@ -222,36 +222,35 @@ impl NvmeRWCommand {
 
 #[repr(C)]
 #[derive(Copy, Clone, Debug, Default)]
-pub struct NvmeFeatures{
+pub struct NvmeFeatures {
     pub opcode: u8,
     pub flags: u8,
     pub command_id: u16,
     pub nsid: u32,
-    pub rsvd2: [u64;2],
+    pub rsvd2: [u64; 2],
     pub prp1: u64,
     pub prp2: u64,
     pub fid: u32,
     pub dword11: u32,
-    pub rsvd12: [u32;4],
+    pub rsvd12: [u32; 4],
 }
 
-impl NvmeFeatures{
-    pub fn new(fid:u32, dword11: u32) -> Self{
-        Self{
+impl NvmeFeatures {
+    pub fn new(fid: u32, dword11: u32) -> Self {
+        Self {
             opcode: 0x09,
             flags: 0,
             command_id: 0,
             nsid: 0,
-            rsvd2: [0;2],
+            rsvd2: [0; 2],
             prp1: 0,
             prp2: 0,
             fid: fid,
             dword11: dword11,
-            rsvd12: [0;4],
+            rsvd12: [0; 4],
         }
     }
 }
-
 
 #[repr(C)]
 #[derive(Debug, Copy, Clone, Default)]

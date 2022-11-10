@@ -52,7 +52,6 @@ impl<D: DmaAllocator, I: IrqController> NvmeInterface<D, I> {
     }
 }
 
-
 impl<D: DmaAllocator, I: IrqController> NvmeInterface<D, I> {
     // submit admin command and wait for completion
     pub fn submit_sync_command(&mut self, cmd: NvmeCommonCommand) {
@@ -152,7 +151,6 @@ impl<D: DmaAllocator, I: IrqController> NvmeInterface<D, I> {
     }
 }
 
-
 impl<D: DmaAllocator, I: IrqController> NvmeInterface<D, I> {
     // 每个NVMe命令中有两个域：PRP1和PRP2，Host就是通过这两个域告诉SSD数据在内存中的位置或者数据需要写入的地址
     // 首先对prp1进行读写，如果数据还没完，就看数据量是不是在一个page内，在的话，只需要读写prp2内存地址就可以了，数据量大于1个page，就需要读出prp list
@@ -217,7 +215,7 @@ impl<D: DmaAllocator, I: IrqController> NvmeInterface<D, I> {
         self.nvme_poll_cq(&mut io_queue);
     }
 
-    fn send_read_command(&self, block_id:usize, read_buf: &mut [u8], cid: usize)-> usize{
+    fn send_read_command(&self, block_id: usize, read_buf: &mut [u8], cid: usize) -> usize {
         // 这里dma addr 就是buffer的地址
         let ptr = read_buf.as_mut_ptr();
         let addr = D::virt_to_phys(ptr as usize);
@@ -234,12 +232,11 @@ impl<D: DmaAllocator, I: IrqController> NvmeInterface<D, I> {
         let common_cmd = unsafe { core::mem::transmute(cmd) };
 
         let mut io_queue = self.io_queues[0].lock();
-        self.send_command( &mut io_queue, common_cmd);
-        
+        self.send_command(&mut io_queue, common_cmd);
+
         cid as usize
     }
-    fn send_write_command(&self, block_id:usize, write_buf: &[u8], cid: usize) -> usize{
-
+    fn send_write_command(&self, block_id: usize, write_buf: &[u8], cid: usize) -> usize {
         let ptr = write_buf.as_ptr();
         let addr = D::virt_to_phys(ptr as usize);
         // build nvme write command
@@ -253,13 +250,11 @@ impl<D: DmaAllocator, I: IrqController> NvmeInterface<D, I> {
         let common_cmd = unsafe { core::mem::transmute(cmd) };
 
         let mut io_queue = self.io_queues[0].lock();
-        self.send_command( &mut io_queue, common_cmd);
-    
+        self.send_command(&mut io_queue, common_cmd);
+
         cid as usize
     }
-
 }
-
 
 impl<D: DmaAllocator, I: IrqController> NvmeInterface<D, I> {
     pub fn nvme_poll_irqdisable(&self) {
@@ -339,21 +334,17 @@ impl<D: DmaAllocator, I: IrqController> NvmeInterface<D, I> {
     pub fn handle_irq(&self) {
         let mut io_queue = self.io_queues[0].lock();
 
-        if self.nvme_cqe_pending(&mut io_queue){
+        if self.nvme_cqe_pending(&mut io_queue) {
             self.nvme_update_cq_head(&mut io_queue);
             self.nvme_ring_cq_doorbell(&mut io_queue);
         }
     }
 }
 
-
-
 impl<D: DmaAllocator, I: IrqController> NvmeInterface<D, I> {
-
     pub fn set_features(&mut self, fid: u32, dword11: u32) {
         let cmd = NvmeFeatures::new(fid, dword11);
         let common_cmd = unsafe { core::mem::transmute(cmd) };
         self.submit_sync_command(common_cmd);
     }
-
 }
