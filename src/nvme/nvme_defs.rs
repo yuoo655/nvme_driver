@@ -257,7 +257,6 @@ impl NvmeFeatures{
 #[derive(Debug, Copy, Clone, Default)]
 pub struct NvmeCompletion {
     pub result: u64,
-    // pub rsvd: u32,
     pub sq_head: u16,
     pub sq_id: u16,
     pub command_id: u16,
@@ -322,6 +321,7 @@ pub const NVME_SQ_PRIO_HIGH: u16 = 1 << 1;
 pub const NVME_SQ_PRIO_MEDIUM: u16 = 2 << 1;
 pub const NVME_SQ_PRIO_LOW: u16 = 3 << 1;
 
+// nvme feature command fid field
 pub const NVME_FEAT_ARBITRATION: u32 = 0x01;
 pub const NVME_FEAT_POWER_MGMT: u32 = 0x02;
 pub const NVME_FEAT_LBA_RANGE: u32 = 0x03;
