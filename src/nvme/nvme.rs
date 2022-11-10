@@ -52,29 +52,13 @@ impl<D: DmaAllocator, I: IrqController> NvmeInterface<D, I> {
     }
 }
 
+
 impl<D: DmaAllocator, I: IrqController> NvmeInterface<D, I> {
     // submit admin command and wait for completion
     pub fn submit_sync_command(&mut self, cmd: NvmeCommonCommand) {
         let mut admin_queue = self.admin_queue.lock();
-        let dbs = self.bar + NVME_REG_DBS;
-
-        let sq_tail = admin_queue.sq_tail;
-        let cq_head = admin_queue.cq_head;
-
-        admin_queue.sq[sq_tail].write(cmd);
-        admin_queue.sq_tail += 1;
-
-        let admin_q_db = dbs + admin_queue.db_offset;
-        unsafe { write_volatile(admin_q_db as *mut u32, (sq_tail + 1) as u32) }
-
-        loop {
-            let status = admin_queue.cq[cq_head].read();
-            if status.status != 0 {
-                unsafe { write_volatile((admin_q_db + 0x4) as *mut u32, (cq_head + 1) as u32) }
-                admin_queue.cq_head += 1;
-                break;
-            }
-        }
+        self.send_command(&mut admin_queue, cmd);
+        self.nvme_poll_cq(&mut admin_queue);
     }
 
     // config admin queue
@@ -167,6 +151,7 @@ impl<D: DmaAllocator, I: IrqController> NvmeInterface<D, I> {
         self.submit_sync_command(common_cmd);
     }
 }
+
 
 impl<D: DmaAllocator, I: IrqController> NvmeInterface<D, I> {
     // 每个NVMe命令中有两个域：PRP1和PRP2，Host就是通过这两个域告诉SSD数据在内存中的位置或者数据需要写入的地址
@@ -275,6 +260,7 @@ impl<D: DmaAllocator, I: IrqController> NvmeInterface<D, I> {
 
 }
 
+
 impl<D: DmaAllocator, I: IrqController> NvmeInterface<D, I> {
     pub fn nvme_poll_irqdisable(&self) {
         I::disable_irq(self.irq);
@@ -358,4 +344,16 @@ impl<D: DmaAllocator, I: IrqController> NvmeInterface<D, I> {
             self.nvme_ring_cq_doorbell(&mut io_queue);
         }
     }
+}
+
+
+
+impl<D: DmaAllocator, I: IrqController> NvmeInterface<D, I> {
+
+    pub fn set_features(&mut self, fid: u32, dword11: u32) {
+        let cmd = NvmeFeatures::new(fid, dword11);
+        let common_cmd = unsafe { core::mem::transmute(cmd) };
+        self.submit_sync_command(common_cmd);
+    }
+
 }

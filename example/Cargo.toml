@@ -9,7 +9,7 @@ edition = "2021"
 log = "0.4"
 sbi-rt = { version = "0.0.2", features = ["legacy"] }
 pci = { git = "https://github.com/elliott10/pci-rs.git", rev = "6441576c" }
-pci_device_drivers = {path = "../"}
+nvme_driver = {path = "../"}
 lazy_static = { version = "1.4", features = ["spin_no_std"] }
 buddy_system_allocator = "0.6"
 riscv = "0.9"

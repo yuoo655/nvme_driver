@@ -1,9 +1,9 @@
 use core::sync::atomic::*;
 
 
-use pci_device_drivers::NvmeInterface;
-use pci_device_drivers::DmaAllocator;
-use pci_device_drivers::IrqController;
+use nvme_driver::NvmeInterface;
+use nvme_driver::DmaAllocator;
+use nvme_driver::IrqController;
 
 
 use lazy_static::lazy_static;
