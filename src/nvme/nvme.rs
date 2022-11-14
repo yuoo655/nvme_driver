@@ -49,6 +49,8 @@ impl<D: DmaAllocator, I: IrqController> NvmeInterface<D, I> {
         self.nvme_configure_admin_queue();
 
         self.nvme_alloc_io_queue();
+
+
     }
 }
 
@@ -104,8 +106,12 @@ impl<D: DmaAllocator, I: IrqController> NvmeInterface<D, I> {
 
         unsafe { write_volatile((bar + NVME_REG_CC) as *mut u32, ctrl_config) }
 
-        let _dev_status = unsafe { read_volatile((bar + NVME_REG_CSTS) as *mut u32) };
-        // warn!("nvme status {}", _dev_status);
+        loop {
+            let dev_status = unsafe { read_volatile((bar + NVME_REG_CSTS) as *mut u32) };
+            if dev_status != 0{
+                break;
+            }
+        }
     }
 
     // alloc io queue
