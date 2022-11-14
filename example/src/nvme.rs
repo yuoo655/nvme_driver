@@ -21,7 +21,7 @@ impl DmaAllocator for DmaProvider{
         paddr
     }
 
-    fn dma_dealloc(addr: usize) -> usize{
+    fn dma_dealloc(addr: usize, size: usize) -> usize{
         0
     }
 

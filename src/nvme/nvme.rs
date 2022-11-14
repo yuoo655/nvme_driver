@@ -348,3 +348,75 @@ impl<D: DmaAllocator, I: IrqController> NvmeInterface<D, I> {
         self.submit_sync_command(common_cmd);
     }
 }
+
+
+
+
+// // async read/write
+// use core::{
+//     future::Future,
+//     pin::Pin,
+//     task::{Context, Poll},
+// };
+// use core::sync::atomic::{AtomicBool, Ordering, AtomicUsize};
+
+// impl<D: DmaAllocator, I: IrqController> NvmeInterface<D, I> {
+//     fn async_read_block(&self, block_id: usize, read_buf: &mut [u8]) -> NvmeFuture{
+//         let cid = NVME_COMMAND_ID.lock().load(Ordering::SeqCst);
+//         NVME_COMMAND_ID.lock().store(cid + 1, Ordering::Relaxed);
+
+//         self.send_read_command(block_id, read_buf, cid);
+//         let f =  NvmeFuture::new(cid);
+//         f
+//     }
+
+//     async fn async_write_block(&self, block_id: usize, write_buf: &[u8]) -> NvmeFuture{
+//         let cid = NVME_COMMAND_ID.lock().load(Ordering::SeqCst);
+//         NVME_COMMAND_ID.lock().store(cid + 1, Ordering::Relaxed);
+
+//         self.send_write_command(block_id, write_buf, cid);
+//         let f =  NvmeFuture::new(cid);
+//         f
+//     }
+// }
+
+// lazy_static::lazy_static! {
+//     pub static ref NVME_MAP: Mutex<BTreeMap<usize, (Waker, Arc<AtomicBool>)>> = Mutex::new(BTreeMap::new());
+// }
+
+
+// lazy_static::lazy_static! {
+//     pub static ref NVME_COMMAND_ID: Mutex<AtomicUsize> = Mutex::new(AtomicUsize::new(0));
+// }
+
+
+// pub struct NvmeFuture{
+//     command_id: usize,
+//     irq_occurred: Arc<AtomicBool>,
+    
+// }
+
+// impl NvmeFuture{
+//     fn new(id: usize)-> Self{
+
+//         Self {
+//             command_id: id,
+//             irq_occurred: Arc::new(AtomicBool::new(false))
+//         }
+//     }
+// }
+
+// impl Future for NvmeFuture{
+
+//     type Output = ();
+
+//     fn poll(self: Pin<&mut Self>, cx: &mut Context) -> Poll<Self::Output> {
+//         let waker = cx.waker().clone();
+//         if !self.irq_occurred.load(Ordering::SeqCst) {
+//             NVME_MAP.lock().insert(self.command_id, (waker, self.irq_occurred.clone()),);
+//         }else{
+//             return Poll::Ready(());
+//         }
+//         Poll::Pending
+//     }
+// }
