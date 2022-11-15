@@ -41,7 +41,7 @@ pub fn init() {
 
         sie::set_sext();
     }
-    timer_init();
+    // timer_init();
     println!("++++ setup interrupt! ++++");
 }
 

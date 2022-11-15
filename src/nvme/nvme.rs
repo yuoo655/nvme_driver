@@ -75,9 +75,9 @@ impl<D: DmaAllocator, I: IrqController> NvmeInterface<D, I> {
         let cq_dma_pa = admin_queue.cq_pa as u32;
 
         // sq depth
-        let aqa_low_16 = 31_u16;
+        let aqa_low_16 = 64_u16;
         // cq depth
-        let aqa_high_16 = 31_u16;
+        let aqa_high_16 = 64_u16;
         let aqa = (aqa_high_16 as u32) << 16 | aqa_low_16 as u32;
         let aqa_address = bar + NVME_REG_AQA;
 
@@ -137,8 +137,8 @@ impl<D: DmaAllocator, I: IrqController> NvmeInterface<D, I> {
         cmd.nsid = 0;
         cmd.prp1 = cq_pa as u64;
         cmd.cqid = 1;
-        cmd.qsize = 1023;
-        cmd.cq_flags = NVME_QUEUE_PHYS_CONTIG | NVME_CQ_IRQ_ENABLED;
+        cmd.qsize = 64;
+        cmd.cq_flags = NVME_QUEUE_PHYS_CONTIG;
         let common_cmd = unsafe { core::mem::transmute(cmd) };
         self.submit_sync_command(common_cmd);
 
@@ -149,7 +149,7 @@ impl<D: DmaAllocator, I: IrqController> NvmeInterface<D, I> {
         cmd.nsid = 0;
         cmd.prp1 = sq_pa as u64;
         cmd.sqid = 1;
-        cmd.qsize = 1023;
+        cmd.qsize = 64;
         cmd.sq_flags = 0x1;
         cmd.cqid = 0x1;
         let common_cmd = unsafe { core::mem::transmute(cmd) };
@@ -357,6 +357,18 @@ impl<D: DmaAllocator, I: IrqController> NvmeInterface<D, I> {
 
 
 
+// impl<D: DmaAllocator, I: IrqController> NvmeInterface<D, I> {
+//     pub fn alloc_ns(&mut self,
+//         nsid: u32, 
+//         max_sectors: u32
+//     ){
+
+
+
+
+
+//     }
+// }
 
 // // async read/write
 // use core::{
