@@ -39,6 +39,7 @@ qemu-nvme: osbin
 		-display none \
 		-bios default \
 		-kernel os.bin \
+		-smp 1 \
 		-drive file=nvme.img,if=none,id=nvm \
 		-device nvme,serial=deadbeef,drive=nvm
 

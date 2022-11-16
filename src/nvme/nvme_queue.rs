@@ -39,19 +39,19 @@ pub struct NvmeQueue<D: DmaAllocator> {
 impl<D: DmaAllocator> NvmeQueue<D> {
     pub fn new(qid: usize, db_offset: usize) -> Self {
         let data_va = D::dma_alloc(PAGE_SIZE * 4);
-        let sq_va = D::dma_alloc(PAGE_SIZE * 4);
-        let cq_va = D::dma_alloc(PAGE_SIZE * 4);
+        let sq_va = D::dma_alloc(0x10000);
+        let cq_va = D::dma_alloc(0x4000);
 
         let data_pa = D::virt_to_phys(data_va);
         let sq_pa = D::virt_to_phys(sq_va);
         let cq_pa = D::virt_to_phys(cq_va);
 
         let submit_queue = unsafe {
-            slice::from_raw_parts_mut(sq_va as *mut Volatile<NvmeCommonCommand>, PAGE_SIZE * 4)
+            slice::from_raw_parts_mut(sq_va as *mut Volatile<NvmeCommonCommand>, 0x10000)
         };
 
         let complete_queue = unsafe {
-            slice::from_raw_parts_mut(cq_va as *mut Volatile<NvmeCompletion>, PAGE_SIZE * 4)
+            slice::from_raw_parts_mut(cq_va as *mut Volatile<NvmeCompletion>, 0x4000)
         };
 
         let sq_size = (PAGE_SIZE * 4) / core::mem::size_of::<Volatile<NvmeCommonCommand>>();

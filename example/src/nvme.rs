@@ -127,10 +127,10 @@ pub fn nvme_test() ->!{
     // for i in 0..100000{
         // }
         
-    let buff = [0x11 as u8;512];
-    let mut read_buf = [0u8; 512];
     for i in 0..100000{
-        let write_buf:&[u8] = &[0x11 as u8;512];
+        let mut read_buf = [0u8; 512];
+        let buff = [i as u8;512];
+        let write_buf:&[u8] = &[i as u8;512];
         nvme.write_block(i, &write_buf);
         nvme.read_block(i, &mut read_buf);
         // println!("{:?}", i);
