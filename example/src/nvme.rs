@@ -139,35 +139,3 @@ pub fn nvme_test() ->!{
 
     panic!("Unreachable in rust_main!");
 }
-
-
-
-// cfg_if::cfg_if! {
-//     if #[cfg(target_arch = "riscv64")] {
-//         macro_rules! memory_fence {
-//             ($pred:ident, $succ:ident) => {
-//                 unsafe { core::arch::asm!(concat!("fence ", stringify!($pred), ',', stringify!($succ))) }
-//             };
-//         }
-//     } else {
-//         macro_rules! memory_fence {
-//             ($pred:ident, $succ:ident) => {};
-//         }
-//     }
-// }
-
-macro_rules! memory_fence {
-    ($pred:ident, $succ:ident) => {
-        unsafe { core::arch::asm!(concat!("fence ", stringify!($pred), ',', stringify!($succ))) }
-    };
-}
-
-#[inline(always)]
-pub fn dma_rmb() {
-    memory_fence!(r, r);
-}
-
-#[inline(always)]
-pub fn dma_wmb() {
-    memory_fence!(w, w);
-}

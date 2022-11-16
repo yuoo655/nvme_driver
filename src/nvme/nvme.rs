@@ -11,6 +11,8 @@ use crate::irq::IrqController;
 use lock::Mutex;
 use lock::MutexGuard;
 
+pub const NVME_QUEUE_DEPTH: usize = 1024;
+
 pub struct NvmeInterface<D: DmaAllocator, I: IrqController> {
     irq_data: PhantomData<I>,
 
@@ -122,6 +124,7 @@ impl<D: DmaAllocator, I: IrqController> NvmeInterface<D, I> {
         let cq_pa = self.io_queues[0].lock().cq_pa;
         let sq_pa = self.io_queues[0].lock().sq_pa;
 
+        let q_depth = self.io_queues[0].lock().q_depth as u16;
         // nvme_set_queue_count
         let mut cmd = NvmeCommonCommand::new();
         cmd.opcode = 0x09;
@@ -137,8 +140,8 @@ impl<D: DmaAllocator, I: IrqController> NvmeInterface<D, I> {
         cmd.nsid = 0;
         cmd.prp1 = cq_pa as u64;
         cmd.cqid = 1;
-        cmd.qsize = 1023;
-        cmd.cq_flags = NVME_QUEUE_PHYS_CONTIG;
+        cmd.qsize = q_depth - 1;
+        cmd.cq_flags = NVME_QUEUE_PHYS_CONTIG | NVME_CQ_IRQ_ENABLED;
         let common_cmd = unsafe { core::mem::transmute(cmd) };
         self.submit_sync_command(common_cmd);
 
@@ -149,7 +152,7 @@ impl<D: DmaAllocator, I: IrqController> NvmeInterface<D, I> {
         cmd.nsid = 0;
         cmd.prp1 = sq_pa as u64;
         cmd.sqid = 1;
-        cmd.qsize = 1023;
+        cmd.qsize = q_depth - 1;
         cmd.sq_flags = 0x1;
         cmd.cqid = 0x1;
         let common_cmd = unsafe { core::mem::transmute(cmd) };

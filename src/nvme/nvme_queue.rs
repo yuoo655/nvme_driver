@@ -4,6 +4,7 @@ use volatile::Volatile;
 
 use super::NvmeCommonCommand;
 use super::NvmeCompletion;
+use super::NVME_QUEUE_DEPTH;
 
 use crate::dma::DmaAllocator;
 
@@ -22,8 +23,6 @@ pub struct NvmeQueue<D: DmaAllocator> {
     pub db_offset: usize,
 
     pub q_depth: usize,
-    pub sq_size: usize,
-    pub cq_size: usize,
 
     pub cq_head: usize,
     pub cq_phase: usize,
@@ -39,23 +38,20 @@ pub struct NvmeQueue<D: DmaAllocator> {
 impl<D: DmaAllocator> NvmeQueue<D> {
     pub fn new(qid: usize, db_offset: usize) -> Self {
         let data_va = D::dma_alloc(PAGE_SIZE * 4);
-        let sq_va = D::dma_alloc(0x10000);
-        let cq_va = D::dma_alloc(0x4000);
+        let sq_va = D::dma_alloc(NVME_QUEUE_DEPTH*64);
+        let cq_va = D::dma_alloc(NVME_QUEUE_DEPTH*16);
 
         let data_pa = D::virt_to_phys(data_va);
         let sq_pa = D::virt_to_phys(sq_va);
         let cq_pa = D::virt_to_phys(cq_va);
 
         let submit_queue = unsafe {
-            slice::from_raw_parts_mut(sq_va as *mut Volatile<NvmeCommonCommand>, 0x10000)
+            slice::from_raw_parts_mut(sq_va as *mut Volatile<NvmeCommonCommand>, NVME_QUEUE_DEPTH*64)
         };
 
         let complete_queue = unsafe {
-            slice::from_raw_parts_mut(cq_va as *mut Volatile<NvmeCompletion>, 0x4000)
+            slice::from_raw_parts_mut(cq_va as *mut Volatile<NvmeCompletion>, NVME_QUEUE_DEPTH*16)
         };
-
-        let sq_size = (PAGE_SIZE * 4) / core::mem::size_of::<Volatile<NvmeCommonCommand>>();
-        let cq_size = (PAGE_SIZE * 4) / core::mem::size_of::<Volatile<NvmeCompletion>>();
 
 
         NvmeQueue {
@@ -63,7 +59,7 @@ impl<D: DmaAllocator> NvmeQueue<D> {
             sq: submit_queue,
             cq: complete_queue,
             db_offset,
-            q_depth: 1024,
+            q_depth: NVME_QUEUE_DEPTH,
             qid,
             cq_head: 0,
             cq_phase: 1,
@@ -72,8 +68,6 @@ impl<D: DmaAllocator> NvmeQueue<D> {
             sq_pa,
             cq_pa,
             data_pa,
-            sq_size: sq_size,
-            cq_size: cq_size,
         }
     }
 

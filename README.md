@@ -18,8 +18,14 @@ make env
 
 ```
 cd example
-dd if=/dev/zero bs=1M count=16 of=nvme.img
+dd if=/dev/zero bs=1M count=128 of=nvme.img
 make qemu-nvme
 cat | head -c 1024 nvme.img | xxd
+```
+
+or
+
+```
+sh ./run.sh
 ```
 
