@@ -1,4 +1,5 @@
 use core::{ptr::{read_volatile, write_volatile}, marker::PhantomData};
+use log::info;
 
 pub trait DmaAllocator {
 
@@ -11,17 +12,20 @@ pub trait DmaAllocator {
     // Map a coherent DMA buffer previously allocated by dma_alloc_attrs into user
     // space.  The coherent DMA buffer must not be freed by the driver until the
     // user space mapping has been released.
-    fn dma_alloc(size: usize, dma_handle: u64) -> usize;
+    fn dma_alloc(size: usize, dma_handle: &mut u64) -> usize;
     fn dma_dealloc(cpu_addr: *mut (), dma_handle: u64, size: usize) ;
 }
 
 pub fn dma_alloc<T, D:DmaAllocator>(count: usize) -> DmaInfo<T, D> {
+
+    
     let t_size = core::mem::size_of::<T>();
     let size = count.checked_mul(t_size).unwrap();
-
+    
+    info!("dma_alloc t_size:{:#x?} count:{:?} size:{:#x?}", t_size, count, size);
     let mut dma_handle = 0;
 
-    let cpu_addr =  D::dma_alloc(size, dma_handle);
+    let cpu_addr =  D::dma_alloc(size, &mut dma_handle);
 
     DmaInfo::new(cpu_addr as _, dma_handle, count)
 }

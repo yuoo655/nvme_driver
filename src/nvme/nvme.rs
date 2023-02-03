@@ -33,7 +33,7 @@ struct NvmeNamespace {
     lba_shift: u32,
 }
 
-struct NvmeResources<I:IoMapper> {
+struct NvmeResources<I: IoMapper> {
     iomapper: PhantomData<I>,
     bar: IoMem<8192, I>,
 }
@@ -46,7 +46,6 @@ impl<I: IoMapper> NvmeResources<I> {
         }
     }
 }
-
 
 pub struct NvmeDevice<D: DmaAllocator, I: IoMapper> {
     dma: PhantomData<D>,
@@ -62,7 +61,7 @@ impl<D: DmaAllocator, I: IoMapper> NvmeDevice<D, I> {
 
         Self::wait_idle(&bar);
 
-        let queue_depth = NVME_Q_DEPTH;
+        let queue_depth = NVME_QUEUE_DEPTH;
 
         let admin_queue = NvmeQueue::<D, I>::new(0, queue_depth as u16, 0, false, 0);
 
@@ -102,13 +101,10 @@ impl<D: DmaAllocator, I: IoMapper> NvmeDevice<D, I> {
     fn wait_idle(bar: &IoMem<8192, I>) {
         info!("Waiting for controller idle\n");
 
-        while bar.readl(OFFSET_CSTS) & NVME_CSTS_RDY != 0 {
-
-        }
+        while bar.readl(OFFSET_CSTS) & NVME_CSTS_RDY != 0 {}
 
         info!("Controller ready\n");
     }
-
 }
 
 // pub fn alloc_ns() {}

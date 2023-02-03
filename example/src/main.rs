@@ -47,12 +47,16 @@ pub fn init_heap() {
 }
 
 
+
+use log::{info, warn, LevelFilter};
+
 #[no_mangle]
 pub fn rust_main() -> ! {
+    // log::set_max_level(LevelFilter::Info);
     clear_bss();
     init_heap();
+    console::init();
     println!("Hello, world!");
-    // pci_scan();
     trap::init();
     nvme::nvme_test();
     

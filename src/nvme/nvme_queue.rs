@@ -5,6 +5,8 @@ use volatile::Volatile;
 
 use super::NvmeCommand;
 use super::NvmeCompletion;
+use super::NvmeCommon;
+
 
 use super::NVME_QUEUE_DEPTH;
 
@@ -61,7 +63,7 @@ pub(crate) struct NvmeQueue<D: DmaAllocator, I: IoMapper> {
     cq_head: AtomicU16,
     cq_phase: AtomicU16,
 
-    pub(crate) sq: DmaInfo<NvmeCommand, D>,
+    pub(crate) sq: DmaInfo<NvmeCommon, D>,
     pub(crate) cq: DmaInfo<NvmeCompletion, D>,
 
     pub(crate) q_depth: u16,
@@ -81,7 +83,7 @@ impl<D: DmaAllocator, I: IoMapper> NvmeQueue<D, I> {
     ) -> Self {
 
         let cq: DmaInfo<NvmeCompletion, D> = dma_alloc::<NvmeCompletion,D>(depth.into());
-        let sq: DmaInfo<NvmeCommand, D> = dma_alloc::<NvmeCommand, D>(depth.into());
+        let sq: DmaInfo<NvmeCommon, D> = dma_alloc::<NvmeCommon, D>(depth.into());
 
         // Zero out all completions. This is necessary so that we can check the phase.
         for i in 0..depth {

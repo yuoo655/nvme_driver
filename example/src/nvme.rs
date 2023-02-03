@@ -17,8 +17,9 @@ pub struct DmaProvider;
 
 impl DmaAllocator for DmaProvider{
 
-    fn dma_alloc(size: usize, dma_handle: u64) -> usize{
+    fn dma_alloc(size: usize, dma_handle: &mut u64) -> usize{
         let paddr = DMA_PADDR.fetch_add(size, Ordering::SeqCst);
+        *dma_handle = paddr as u64;
         paddr
     }
 
