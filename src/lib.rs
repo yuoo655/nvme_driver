@@ -9,11 +9,12 @@ mod dma;
 mod irq;
 mod nvme;
 mod iomem;
-mod device;
+
 
 pub use dma::*;
 pub use irq::*;
 pub use nvme::*;
-pub use device::*;
+pub use iomem::*;
+
 
 

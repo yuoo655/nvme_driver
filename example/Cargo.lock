@@ -150,6 +150,7 @@ name = "nvme_driver"
 version = "0.1.0"
 dependencies = [
  "lock",
+ "log",
  "volatile 0.3.0",
 ]
 

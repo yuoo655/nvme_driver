@@ -1,4 +1,4 @@
-use core::ptr::{read_volatile, write_volatile};
+use core::{ptr::{read_volatile, write_volatile}, marker::PhantomData};
 
 pub trait DmaAllocator {
 
@@ -17,7 +17,7 @@ pub trait DmaAllocator {
 
 pub fn dma_alloc<T, D:DmaAllocator>(count: usize) -> DmaInfo<T, D> {
     let t_size = core::mem::size_of::<T>();
-    let size = count.checked_mul(t_size)?;
+    let size = count.checked_mul(t_size).unwrap();
 
     let mut dma_handle = 0;
 
@@ -27,6 +27,7 @@ pub fn dma_alloc<T, D:DmaAllocator>(count: usize) -> DmaInfo<T, D> {
 }
 
 pub struct DmaInfo<T, D:DmaAllocator> {
+    dma: PhantomData<D>,
     count: usize,
     // addr for device
     pub dma_handle: u64,
@@ -40,6 +41,7 @@ impl<T, D: DmaAllocator> DmaInfo<T, D> {
             count: count,
             dma_handle : dma_handle,
             cpu_addr: cpu_addr,
+            dma: PhantomData,
 
         }
     }

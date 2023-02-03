@@ -10,13 +10,10 @@ mod console;
 
 mod lang_items;
 mod sbi;
-mod pci_scan;
 mod nvme;
 mod trap;
 mod plic;
 
-
-use crate::pci_scan::pci_scan;
 
 global_asm!(include_str!("entry.asm"));
 pub fn clear_bss() {
