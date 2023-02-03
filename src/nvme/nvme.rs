@@ -6,439 +6,234 @@ use core::ptr::{read_volatile, write_volatile};
 
 use super::nvme_defs::*;
 use super::nvme_queue::*;
+use crate::dma::DmaAlloc;
 use crate::dma::DmaAllocator;
+use crate::iomem::IoMem;
 use crate::irq::IrqController;
 use lock::Mutex;
 use lock::MutexGuard;
 
+use log::info;
+
 pub const NVME_QUEUE_DEPTH: usize = 1024;
 
-pub struct NvmeInterface<D: DmaAllocator, I: IrqController> {
-    irq_data: PhantomData<I>,
+pub const NVME_Q_DEPTH: usize = 64;
 
-    admin_queue: Arc<Mutex<NvmeQueue<D>>>,
+use alloc::boxed::Box;
+use core::{
+    cell::UnsafeCell,
+    convert::TryInto,
+    format_args,
+    pin::Pin,
+    sync::atomic::{AtomicU16, AtomicU32, AtomicU64, Ordering},
+};
 
-    io_queues: Vec<Arc<Mutex<NvmeQueue<D>>>>,
-
-    bar: usize,
-
-    irq: usize,
+struct NvmeNamespace {
+    id: u32,
+    lba_shift: u32,
 }
 
-impl<D: DmaAllocator, I: IrqController> NvmeInterface<D, I> {
-    // alloc dma memory for admin queue and io queues
-    // basic init for admin queue and io queues
-    pub fn new(bar: usize) -> Self {
-        let admin_queue = Arc::new(Mutex::new(NvmeQueue::new(0, 0)));
-
-        let io_queues = vec![Arc::new(Mutex::new(NvmeQueue::new(1, 0x8)))];
-
-        let mut interface = NvmeInterface {
-            irq_data: PhantomData,
-            admin_queue,
-            io_queues,
-            bar,
-            irq: 33,
-        };
-
-        interface.init();
-
-        interface
-    }
-
-    // config admin queue ,io queue
-    pub fn init(&mut self) {
-        self.nvme_configure_admin_queue();
-
-        self.nvme_alloc_io_queue();
-
-
-    }
+struct NvmeResources {
+    bar: IoMem<8192>,
 }
 
-impl<D: DmaAllocator, I: IrqController> NvmeInterface<D, I> {
-    // submit admin command and wait for completion
-    pub fn submit_sync_command(&mut self, cmd: NvmeCommonCommand) {
-        let mut admin_queue = self.admin_queue.lock();
-        self.send_command(&mut admin_queue, cmd);
-        self.nvme_poll_cq(&mut admin_queue);
+pub struct NvmeRequest {
+    dma_addr: AtomicU64,
+    result: AtomicU32,
+    status: AtomicU16,
+    direction: AtomicU32,
+    len: AtomicU32,
+    cmd: UnsafeCell<NvmeCommand>,
+    sg_count: AtomicU32,
+    page_count: AtomicU32,
+    first_dma: AtomicU64,
+}
+
+
+// struct NvmeQueues<D:DmaAllocator, I: IrqController> {
+//     admin: Option<Arc<NvmeQueue<D, I>>>,
+//     io: Vec<Arc<NvmeQueue<D, I>>>,
+// }
+
+// struct NvmeShadow<D: DmaAllocator> {
+//     dbs: DmaAlloc<u32, D>,
+//     eis: DmaAlloc<u32, D>,
+// }
+
+// pub struct NvmeData<D: DmaAllocator, I: IrqController> {
+
+//     db_stride: usize,
+//     instance: u32,
+//     dma_pool: usize,
+
+//     shadow: Option<NvmeShadow<D>>,
+
+//     queues: Mutex<NvmeQueues<D, I>>,
+
+//     poll_queue_count: u32,
+
+//     irq_queue_count: u32,
+// }
+
+struct NvmeDevice;
+
+impl NvmeDevice {
+    pub fn alloc_ns() {}
+
+    fn wait_ready(bar: IoMem) {
+        info!("Waiting for controller ready\n");
+        {
+            while bar.readl(OFFSET_CSTS) & NVME_CSTS_RDY == 0 {
+                // unsafe { bindings::mdelay(100) };
+                // TODO: Add check for fatal signal pending.
+                // TODO: Set timeout.
+            }
+        }
+        info!("Controller ready\n");
     }
 
-    // config admin queue
-    // 1. set admin queue(cq && sq) size
-    // 2. set admin queue(cq && sq) dma address
-    // 3. enable ctrl
-    pub fn nvme_configure_admin_queue(&mut self) {
-        let admin_queue = self.admin_queue.lock();
-
-        let bar = self.bar;
-
-        let sq_dma_pa = admin_queue.sq_pa as u32;
-        let cq_dma_pa = admin_queue.cq_pa as u32;
-
-        // sq depth
-        let aqa_low_16 = 31_u16;
-        // cq depth
-        let aqa_high_16 = 31_u16;
-        let aqa = (aqa_high_16 as u32) << 16 | aqa_low_16 as u32;
-        let aqa_address = bar + NVME_REG_AQA;
-
-        // 将admin queue配置信息(sq/cq depth)写入nvme设备寄存器AQA(Admin Queue Attributes)
-        unsafe {
-            write_volatile(aqa_address as *mut u32, aqa);
+    fn wait_idle(bar: IoMem) {
+        info!("Waiting for controller idle\n");
+        {
+            // let bar = &dev.resources().unwrap().bar;
+            while bar.readl(OFFSET_CSTS) & NVME_CSTS_RDY != 0 {}
         }
+        info!("Controller ready\n");
+    }
 
-        // 将admin queue的sq dma物理地址写入nvme设备上的寄存器ASQ(Admin SQ Base Address)
-        let asq_address = bar + NVME_REG_ASQ;
-        unsafe {
-            write_volatile(asq_address as *mut u32, sq_dma_pa);
+    fn configure_admin_queue(
+        bar: IoMem,
+        pci_dev: &pci::Device,
+    ) -> Result<(
+        Ref<nvme_queue::NvmeQueue<nvme_mq::AdminQueueOperations>>,
+        mq::RequestQueue<nvme_mq::AdminQueueOperations>,
+    )> {
+        info!("Disable (reset) controller\n");
+        {
+            bar.writel(0, OFFSET_CC);
         }
+        Self::wait_idle(bar);
 
-        // 将admin queue的cq dma物理地址写入nvme设备上的寄存器ACQ(Admin CQ Base Address)
-        let acq_address = bar + NVME_REG_ACQ;
-        unsafe {
-            write_volatile(acq_address as *mut u32, cq_dma_pa);
-        }
+        //TODO: Depth?
+        let queue_depth = NVME_Q_DEPTH;
 
-        // enable ctrl
+        let admin_queue = NvmeQueue::new(0, queue_depth, 0, false);
+
+
+        //lba_shift = 2^9 512
+        let ns = Box::try_new(NvmeNamespace {
+            id: 0,
+            lba_shift: 9,
+        })?;
+
+        let mut aqa = (queue_depth - 1) as u32;
+        aqa |= aqa << 16;
+
         let mut ctrl_config = NVME_CC_ENABLE | NVME_CC_CSS_NVM;
-        ctrl_config |= 0 << NVME_CC_MPS_SHIFT;
+        ctrl_config |= (kernel::PAGE_SHIFT - 12) << NVME_CC_MPS_SHIFT;
         ctrl_config |= NVME_CC_ARB_RR | NVME_CC_SHN_NONE;
         ctrl_config |= NVME_CC_IOSQES | NVME_CC_IOCQES;
 
-        unsafe { write_volatile((bar + NVME_REG_CC) as *mut u32, ctrl_config) }
 
-        loop {
-            let dev_status = unsafe { read_volatile((bar + NVME_REG_CSTS) as *mut u32) };
-            if dev_status != 0{
-                break;
-            }
-        }
-    }
-
-    // alloc io queue
-    // 1. set queue count through nvme_features
-    // 2. alloc io queue(cq) through admin command
-    // 3. alloc io queue(sq) through admin command
-    pub fn nvme_alloc_io_queue(&mut self) {
-        let cq_pa = self.io_queues[0].lock().cq_pa;
-        let sq_pa = self.io_queues[0].lock().sq_pa;
-
-        let q_depth = self.io_queues[0].lock().q_depth as u16;
-        // nvme_set_queue_count
-        let mut cmd = NvmeCommonCommand::new();
-        cmd.opcode = 0x09;
-        cmd.command_id = 0x2;
-        cmd.nsid = 0;
-        cmd.cdw10 = 0x7;
-        self.submit_sync_command(cmd);
-
-        //nvme create cq
-        let mut cmd = NvmeCreateCq::new();
-        cmd.opcode = 0x05;
-        cmd.command_id = 0x3;
-        cmd.nsid = 0;
-        cmd.prp1 = cq_pa as u64;
-        cmd.cqid = 1;
-        cmd.qsize = q_depth - 1;
-        cmd.cq_flags = NVME_QUEUE_PHYS_CONTIG | NVME_CQ_IRQ_ENABLED;
-        let common_cmd = unsafe { core::mem::transmute(cmd) };
-        self.submit_sync_command(common_cmd);
-
-        // nvme create sq
-        let mut cmd = NvmeCreateSq::new();
-        cmd.opcode = 0x01;
-        cmd.command_id = 0x4;
-        cmd.nsid = 0;
-        cmd.prp1 = sq_pa as u64;
-        cmd.sqid = 1;
-        cmd.qsize = q_depth - 1;
-        cmd.sq_flags = 0x1;
-        cmd.cqid = 0x1;
-        let common_cmd = unsafe { core::mem::transmute(cmd) };
-        self.submit_sync_command(common_cmd);
-    }
-}
-
-impl<D: DmaAllocator, I: IrqController> NvmeInterface<D, I> {
-    // 每个NVMe命令中有两个域：PRP1和PRP2，Host就是通过这两个域告诉SSD数据在内存中的位置或者数据需要写入的地址
-    // 首先对prp1进行读写，如果数据还没完，就看数据量是不是在一个page内，在的话，只需要读写prp2内存地址就可以了，数据量大于1个page，就需要读出prp list
-
-    // 由于只读一块, 小于一页, 所以只需要prp1
-    // prp1 = dma_addr
-    // prp2 = 0
-
-    // prp设置
-    // uboot中对应实现 nvme_setup_prps
-    // linux中对应实现 nvme_pci_setup_prps
-
-    // SLBA = start logical block address
-    // 1 SLBA = 512B
-    // length = 0 = 512B
-    pub fn read_block(&self, block_id: usize, read_buf: &mut [u8]) {
-        // 这里dma addr 就是buffer的地址
-        let ptr = read_buf.as_mut_ptr();
-        let addr = D::virt_to_phys(ptr as usize);
-
-        // build nvme read command
-        let mut cmd = NvmeRWCommand::new_read_command();
-        cmd.nsid = 1;
-        cmd.prp1 = addr as u64;
-        cmd.command_id = 101;
-        cmd.length = 0;
-        cmd.control = 0x8000;
-        cmd.dsmgmt = 0x7;
-        cmd.slba = block_id as u64;
-
-        //transfer to common command
-        let common_cmd = unsafe { core::mem::transmute(cmd) };
-
-        let mut io_queue = self.io_queues[0].lock();
-        self.send_command(&mut io_queue, common_cmd);
-        self.nvme_poll_cq(&mut io_queue);
-    }
-
-    // prp1 = write_buf physical address
-    // prp2 = 0
-    // SLBA = start logical block address
-    // length = 0 = 512B
-    pub fn write_block(&self, block_id: usize, write_buf: &[u8]) {
-        let ptr = write_buf.as_ptr();
-        let addr = D::virt_to_phys(ptr as usize);
-
-        // build nvme write command
-        let mut cmd = NvmeRWCommand::new_write_command();
-        cmd.nsid = 1;
-        cmd.prp1 = addr as u64;
-        cmd.length = 0;
-        cmd.command_id = 100;
-        cmd.slba = block_id as u64;
-        cmd.control = 0;
-        cmd.dsmgmt = 0;
-
-        // transmute to common command
-        let common_cmd = unsafe { core::mem::transmute(cmd) };
-
-        let mut io_queue = self.io_queues[0].lock();
-        self.send_command(&mut io_queue, common_cmd);
-        self.nvme_poll_cq(&mut io_queue);
-    }
-
-    fn send_read_command(&self, block_id: usize, read_buf: &mut [u8], cid: usize) -> usize {
-        // 这里dma addr 就是buffer的地址
-        let ptr = read_buf.as_mut_ptr();
-        let addr = D::virt_to_phys(ptr as usize);
-
-        // build nvme read command
-        let mut cmd = NvmeRWCommand::new_read_command();
-        cmd.nsid = 1;
-        cmd.prp1 = addr as u64;
-        cmd.command_id = cid as u16;
-        cmd.length = 0;
-        cmd.slba = block_id as u64;
-
-        //transfer to common command
-        let common_cmd = unsafe { core::mem::transmute(cmd) };
-
-        let mut io_queue = self.io_queues[0].lock();
-        self.send_command(&mut io_queue, common_cmd);
-
-        cid as usize
-    }
-    fn send_write_command(&self, block_id: usize, write_buf: &[u8], cid: usize) -> usize {
-        let ptr = write_buf.as_ptr();
-        let addr = D::virt_to_phys(ptr as usize);
-        // build nvme write command
-        let mut cmd = NvmeRWCommand::new_write_command();
-        cmd.nsid = 1;
-        cmd.prp1 = addr as u64;
-        cmd.length = 0;
-        cmd.command_id = cid as u16;
-        cmd.slba = block_id as u64;
-        // transmute to common command
-        let common_cmd = unsafe { core::mem::transmute(cmd) };
-
-        let mut io_queue = self.io_queues[0].lock();
-        self.send_command(&mut io_queue, common_cmd);
-
-        cid as usize
-    }
-}
-
-impl<D: DmaAllocator, I: IrqController> NvmeInterface<D, I> {
-    pub fn nvme_poll_irqdisable(&self) {
-        I::disable_irq(self.irq);
-
-        I::enable_irq(self.irq);
-    }
-
-    // write command to submission queue and write sq doorbell to notify nvme device
-    pub fn send_command(&self, nvmeq: &mut MutexGuard<NvmeQueue<D>>, cmd: NvmeCommonCommand) {
-        let sq_tail = nvmeq.sq_tail;
-        nvmeq.sq[sq_tail].write(cmd);
-
-        if (nvmeq.sq_tail + 1) == nvmeq.q_depth {
-            nvmeq.sq_tail = 0;
-        } else {
-            nvmeq.sq_tail += 1;
+        info!("About to wait for nvme readiness\n");
+        {
+            // TODO: All writes should support endian conversion
+            bar.writel(aqa, OFFSET_AQA);
+            bar.writeq(admin_queue.sq.dma_handle, OFFSET_ASQ);
+            bar.writeq(admin_queue.cq.dma_handle, OFFSET_ACQ);
+            bar.writel(ctrl_config, OFFSET_CC);
         }
 
-        self.nvme_write_sq_db(nvmeq, true);
+        Self::wait_ready(bar);
+
+        info!("Registering admin queue irq");
+
+        admin_queue.register_irq(pci_dev)?;
+
+        info!("Done registering admin queue irq");
+
+        Ok(admin_queue)
     }
 
-    // check completion queue and update cq head cq doorbell until there is no pending command
-    pub fn nvme_poll_cq(&self, nvmeq: &mut MutexGuard<NvmeQueue<D>>) {
+    pub fn setup_io_queues() {}
 
-        while !self.nvme_cqe_pending(nvmeq) {
-        }
-        self.nvme_update_cq_head(nvmeq);
-        self.nvme_ring_cq_doorbell(nvmeq);
-    }
+    pub fn submit_sync_command() {}
 
-    // check if there is completed command in completion queue
-    pub fn nvme_cqe_pending(&self, nvmeq: &mut MutexGuard<NvmeQueue<D>>) -> bool {
-        let cq_head = nvmeq.cq_head;
-        let cqe = nvmeq.cq[cq_head].read();
-        if (cqe.status & 1) == (nvmeq.cq_phase as u16) {
-            return true;
-        } else {
-            return false;
-        }
-    }
+    pub fn set_queue_count() {}
 
-    // notify nvme device we've completed the command
-    pub fn nvme_ring_cq_doorbell(&self, nvmeq: &mut MutexGuard<NvmeQueue<D>>) {
-        let cq_head = nvmeq.cq_head;
-        let q_db = self.bar + NVME_REG_DBS + nvmeq.db_offset;
-        unsafe { write_volatile((q_db + 0x4) as *mut u32, cq_head as u32) }
-    }
+    pub fn alloc_completion_queue() {}
 
-    // write submission queue doorbell to notify nvme device
-    pub fn nvme_write_sq_db(&self, nvmeq: &mut MutexGuard<NvmeQueue<D>>, write_sq: bool) {
-        if !write_sq {
-            let mut next_tail = nvmeq.sq_tail + 1;
-            if next_tail == nvmeq.q_depth {
-                next_tail = 0;
-            }
-            if next_tail != nvmeq.last_sq_tail {
-                return;
-            }
-        }
+    pub fn alloc_submission_queue() {}
 
-        let db = self.bar + NVME_REG_DBS + nvmeq.db_offset;
-        unsafe { write_volatile(db as *mut u32, nvmeq.sq_tail as u32) }
-        nvmeq.last_sq_tail = nvmeq.sq_tail;
-    }
+    pub fn identify() {}
 
-    // update completion queue head
-    pub fn nvme_update_cq_head(&self, nvmeq: &mut MutexGuard<NvmeQueue<D>>) {
-        let next_head = nvmeq.cq_head + 1;
-        if next_head == nvmeq.q_depth {
-            nvmeq.cq_head = 0;
-            nvmeq.cq_phase ^= 1;
-        } else {
-            nvmeq.cq_head = next_head;
-        }
-    }
+    pub fn get_features() {}
 
-    pub fn handle_irq(&self) {
-        let mut io_queue = self.io_queues[0].lock();
+    pub fn set_features() {}
 
-        if self.nvme_cqe_pending(&mut io_queue) {
-            self.nvme_update_cq_head(&mut io_queue);
-            self.nvme_ring_cq_doorbell(&mut io_queue);
-        }
-    }
-}
-
-impl<D: DmaAllocator, I: IrqController> NvmeInterface<D, I> {
-    pub fn set_features(&mut self, fid: u32, dword11: u32) {
-        let cmd = NvmeFeatures::new(fid, dword11);
-        let common_cmd = unsafe { core::mem::transmute(cmd) };
-        self.submit_sync_command(common_cmd);
-    }
+    pub fn dbbuf_set() {}
 }
 
 
 
-// impl<D: DmaAllocator, I: IrqController> NvmeInterface<D, I> {
-//     pub fn alloc_ns(&mut self,
-//         nsid: u32, 
-//         max_sectors: u32
-//     ){
 
+/// Device data.
+///
+/// When a device is removed (for whatever reason, for example, because the device was unplugged or
+/// because the user decided to unbind the driver), the driver is given a chance to clean its state
+/// up, and all io resources should ideally not be used anymore.
+///
+/// However, the device data is reference-counted because other subsystems hold pointers to it. So
+/// some device state must be freed and not used anymore, while others must remain accessible.
+///
+/// This struct separates the device data into three categories:
+///   1. Registrations: are destroyed when the device is removed, but before the io resources
+///      become inaccessible.
+///   2. Io resources: are available until the device is removed.
+///   3. General data: remain available as long as the ref count is nonzero.
+///
+/// This struct implements the `DeviceRemoval` trait so that it can clean resources up even if not
+/// explicitly called by the device drivers.
+pub struct Data<T, U, V> {
+    registrations: Mutex<T>,
+    resources: Mutex<U>,
+    general: V,
+}
 
+impl<T, U, V> Data<T, U, V> {
+    /// Creates a new instance of `Data`.
+    ///
+    /// It is recommended that the [`new_device_data`] macro be used as it automatically creates
+    /// the lock classes.
+    pub fn try_new() {}
 
+    /// Returns the resources if they're still available.
+    pub fn resources(&self) -> Option<RevocableGuard<'_, U>> {
+        self.resources.try_access()
+    }
 
+    /// Returns the locked registrations if they're still available.
+    pub fn registrations(&self) -> Option<RevocableMutexGuard<'_, T>> {
+        self.registrations.try_write()
+    }
+}
 
-//     }
-// }
+impl<T, U, V> Drop for Data<T, U, V> {
+    fn device_remove(&self) {
+        // We revoke the registrations first so that resources are still available to them during
+        // unregistration.
+        self.registrations.revoke();
 
-// // async read/write
-// use core::{
-//     future::Future,
-//     pin::Pin,
-//     task::{Context, Poll},
-// };
-// use core::sync::atomic::{AtomicBool, Ordering, AtomicUsize};
+        // Release resources now. General data remains available.
+        self.resources.revoke();
+    }
+}
 
-// impl<D: DmaAllocator, I: IrqController> NvmeInterface<D, I> {
-//     fn async_read_block(&self, block_id: usize, read_buf: &mut [u8]) -> NvmeFuture{
-//         let cid = NVME_COMMAND_ID.lock().load(Ordering::SeqCst);
-//         NVME_COMMAND_ID.lock().store(cid + 1, Ordering::Relaxed);
-
-//         self.send_read_command(block_id, read_buf, cid);
-//         let f =  NvmeFuture::new(cid);
-//         f
-//     }
-
-//     async fn async_write_block(&self, block_id: usize, write_buf: &[u8]) -> NvmeFuture{
-//         let cid = NVME_COMMAND_ID.lock().load(Ordering::SeqCst);
-//         NVME_COMMAND_ID.lock().store(cid + 1, Ordering::Relaxed);
-
-//         self.send_write_command(block_id, write_buf, cid);
-//         let f =  NvmeFuture::new(cid);
-//         f
-//     }
-// }
-
-// lazy_static::lazy_static! {
-//     pub static ref NVME_MAP: Mutex<BTreeMap<usize, (Waker, Arc<AtomicBool>)>> = Mutex::new(BTreeMap::new());
-// }
-
-
-// lazy_static::lazy_static! {
-//     pub static ref NVME_COMMAND_ID: Mutex<AtomicUsize> = Mutex::new(AtomicUsize::new(0));
-// }
-
-
-// pub struct NvmeFuture{
-//     command_id: usize,
-//     irq_occurred: Arc<AtomicBool>,
-    
-// }
-
-// impl NvmeFuture{
-//     fn new(id: usize)-> Self{
-
-//         Self {
-//             command_id: id,
-//             irq_occurred: Arc::new(AtomicBool::new(false))
-//         }
-//     }
-// }
-
-// impl Future for NvmeFuture{
-
-//     type Output = ();
-
-//     fn poll(self: Pin<&mut Self>, cx: &mut Context) -> Poll<Self::Output> {
-//         let waker = cx.waker().clone();
-//         if !self.irq_occurred.load(Ordering::SeqCst) {
-//             NVME_MAP.lock().insert(self.command_id, (waker, self.irq_occurred.clone()),);
-//         }else{
-//             return Poll::Ready(());
-//         }
-//         Poll::Pending
-//     }
-// }
+/// Custom code within device removal.
+pub trait DeviceRemoval {
+    /// Cleans resources up when the device is removed.
+    ///
+    /// This is called when a device is removed and offers implementers the chance to run some code
+    /// that cleans state up.
+    fn device_remove(&self);
+}
