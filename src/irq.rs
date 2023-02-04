@@ -1,18 +1,17 @@
 use alloc::sync::Arc;
 
 pub trait IrqController {
-    fn request_irq(irq_num: usize);
-    
-    fn enable_irq(irq_num: usize);
+    fn request_irq(irq_num: usize) {}
 
-    fn disable_irq(irq_num: usize);
+    fn enable_irq(irq_num: usize) {}
+
+    fn disable_irq(irq_num: usize) {}
 }
-
 
 /// An irq handler.
 pub trait Handler<T> {
     /// Called from interrupt context when the irq happens.
-    fn handle_irq(data: Arc<T> ) -> Return;
+    fn handle_irq(data: Arc<T>) -> Return;
 }
 
 /// see include/linux/irqreturn.h
@@ -27,4 +26,3 @@ pub enum Return {
     /// The handler wants the handler thread to wake up.
     WakeThread = (1 << 1) as _,
 }
-

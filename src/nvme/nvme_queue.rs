@@ -1,21 +1,24 @@
 use alloc::slice;
+use alloc::sync::Arc;
+use alloc::sync::Weak;
 use core::cell::Ref;
 use core::marker::PhantomData;
 use volatile::Volatile;
 
 use super::NvmeCommand;
-use super::NvmeCompletion;
 use super::NvmeCommon;
-
+use super::NvmeCompletion;
 
 use super::NVME_QUEUE_DEPTH;
+// use super::NvmeDeviceData;
 
 use crate::dma;
-use crate::dma::DmaInfo;
-use crate::dma::DmaAllocator;
 use crate::dma::dma_alloc;
+use crate::dma::DmaAllocator;
+use crate::dma::DmaInfo;
 use crate::iomem::IoMapper;
 use crate::iomem::IoMem;
+use crate::NvmeDevice;
 
 use crate::irq::IrqController;
 
@@ -32,29 +35,28 @@ use lock::MutexGuard;
 
 use log::info;
 
-pub struct NvmeQueueInner<I: IoMapper> {
+pub struct NvmeQueueInner<I: IrqController> {
     irq_data: PhantomData<I>,
     sq_tail: u16,
     last_sq_tail: u16,
     irq: Option<I>,
 }
 
-impl <I:IoMapper> NvmeQueueInner<I>{
-    pub fn new() -> Self{
-
-        Self{
+impl<I: IrqController> NvmeQueueInner<I> {
+    pub fn new() -> Self {
+        Self {
             irq_data: PhantomData,
             sq_tail: 0,
             last_sq_tail: 0,
-            irq: None
+            irq: None,
         }
     }
 }
 
-pub(crate) struct NvmeQueue<D: DmaAllocator, I: IoMapper> {
+pub struct NvmeQueue<D: DmaAllocator, I: IrqController, M: IoMapper> {
+    // pub(crate) nvme_dev: &Arc<NvmeDeviceData<D, I, M>>,
 
-    // pub(crate) data: Ref<DeviceData>,
-
+    m: PhantomData<M>,
     pub(crate) db_offset: usize,
     pub(crate) sdb_index: usize,
     pub(crate) qid: u16,
@@ -63,7 +65,7 @@ pub(crate) struct NvmeQueue<D: DmaAllocator, I: IoMapper> {
     cq_head: AtomicU16,
     cq_phase: AtomicU16,
 
-    pub(crate) sq: DmaInfo<NvmeCommon, D>,
+    pub(crate) sq: DmaInfo<NvmeCommand, D>,
     pub(crate) cq: DmaInfo<NvmeCompletion, D>,
 
     pub(crate) q_depth: u16,
@@ -72,18 +74,22 @@ pub(crate) struct NvmeQueue<D: DmaAllocator, I: IoMapper> {
     inner: Mutex<NvmeQueueInner<I>>,
 }
 
-impl<D: DmaAllocator, I: IoMapper> NvmeQueue<D, I> {
+impl<D, I, M> NvmeQueue<D, I, M>
+where
+    D: DmaAllocator,
+    I: IrqController,
+    M: IoMapper,
+{
     pub(crate) fn new(
-        // data: Ref<DeviceData>,
-        qid: u16, 
-        depth: u16, 
-        vector: u16, 
-        polled: bool, 
-        db_stride: usize
+        // nvme_dev: &Arc<NvmeDeviceData<D, I, M>>,
+        qid: u16,
+        depth: u16,
+        vector: u16,
+        polled: bool,
+        db_stride: usize,
     ) -> Self {
-
-        let cq: DmaInfo<NvmeCompletion, D> = dma_alloc::<NvmeCompletion,D>(depth.into());
-        let sq: DmaInfo<NvmeCommon, D> = dma_alloc::<NvmeCommon, D>(depth.into());
+        let cq: DmaInfo<NvmeCompletion, D> = dma_alloc::<NvmeCompletion, D>(depth.into());
+        let sq: DmaInfo<NvmeCommand, D> = dma_alloc::<NvmeCommand, D>(depth.into());
 
         // Zero out all completions. This is necessary so that we can check the phase.
         for i in 0..depth {
@@ -93,11 +99,11 @@ impl<D: DmaAllocator, I: IoMapper> NvmeQueue<D, I> {
         let sdb_offset = (qid as usize) * db_stride * 2;
         let db_offset = sdb_offset + 4096;
 
-
         let inner = Mutex::new(NvmeQueueInner::<I>::new());
 
         NvmeQueue {
-            // data,
+            // nvme_dev,
+            m: PhantomData,
             db_offset,
             sdb_index: sdb_offset / 4,
             qid,
@@ -106,134 +112,123 @@ impl<D: DmaAllocator, I: IoMapper> NvmeQueue<D, I> {
             q_depth: depth,
             cq_vector: vector,
             cq_head: AtomicU16::new(0),
-            cq_phase: AtomicU16::new(1),                        
-            inner: inner,
+            cq_phase: AtomicU16::new(1),
+            inner,
             polled,
         }
     }
 
+    pub(crate) fn submit_command(&self, cmd: &NvmeCommand, is_last: bool, bar: &IoMem<8192, M>) {
+        let mut inner = self.inner.lock();
+        self.sq.write_volatile(inner.sq_tail.into(), cmd);
+        inner.sq_tail += 1;
+        if inner.sq_tail == self.q_depth {
+            inner.sq_tail = 0;
+        }
+        self.nvme_write_sq_db(is_last, &mut inner, bar);
+    }
 
-    // /// Processes the completion queue.
-    // ///
-    // /// Returns `true` if at least one entry was processed, `false` otherwise.
-    // pub(crate) fn process_completions(&self) -> i32 {
-    //     let mut head = self.cq_head.load(Ordering::Relaxed);
-    //     let mut phase = self.cq_phase.load(Ordering::Relaxed);
-    //     let mut found = 0;
+    // write submission queue doorbell to notify nvme device
+    pub fn nvme_write_sq_db(&self, write_sq: bool, inner: &mut MutexGuard<NvmeQueueInner<I>>, bar: &IoMem<8192, M>) {
+        if !write_sq {
+            let mut next_tail = inner.sq_tail + 1;
+            if next_tail == self.q_depth {
+                next_tail = 0;
+            }
+            if next_tail != inner.last_sq_tail {
+                return;
+            }
+        }
 
-    //     loop {
-    //         let cqe = self.cq.read_volatile(head.into()).unwrap();
+        // let bar = &self.nvme_dev.lock().resources.bar;
+        bar.writel(inner.sq_tail.into(), self.db_offset);
+        inner.last_sq_tail = inner.sq_tail;
+    }
 
-    //         if cqe.status.into() & 1 != phase {
-    //             break;
-    //         }
+    // check if there is completed command in completion queue
+    pub fn nvme_cqe_pending(&self, inner: &mut MutexGuard<NvmeQueueInner<I>>) -> bool {
+        let mut head = self.cq_head.load(Ordering::Relaxed);
+        let mut phase = self.cq_phase.load(Ordering::Relaxed);
+        let cqe = self.cq.read_volatile(head.into()).unwrap();
+        if cqe.status.into() & 1 != phase {
+            return true;
+        } else {
+            return false;
+        }
+    }
 
-    //         let cqe = self.cq.read_volatile(head.into()).unwrap();
+    // update completion queue head
+    pub fn nvme_update_cq_head(&self, inner: &mut MutexGuard<NvmeQueueInner<I>>) {
+        let mut head = self.cq_head.load(Ordering::Relaxed);
+        let mut phase = self.cq_phase.load(Ordering::Relaxed);
 
-    //         found += 1;
-    //         head += 1;
-    //         if head == self.q_depth {
-    //             head = 0;
-    //             phase ^= 1;
-    //         }
-    //     }    
-    //         // cqe.result.into(), Ordering::Relaxed;
-    //         // cqe.status.into() >> 1, Ordering::Relaxed
+        let next_head = head + 1;
+        if next_head == self.q_depth {
+            head = 0;
+            phase ^= 1;
+        } else {
+            head = next_head;
+        }
+    }
 
-    //     if found == 0 {
-    //         return found;
-    //     }
+    // notify nvme device we've completed the command
+    pub fn nvme_ring_cq_doorbell(&self, inner: &mut MutexGuard<NvmeQueueInner<I>>, bar: &IoMem<8192, M>) {
+        let mut head = self.cq_head.load(Ordering::Relaxed);
+        let mut phase = self.cq_phase.load(Ordering::Relaxed);
+        // let bar = &self.nvme_dev.lock().resources.bar;
+        bar.writel(head.into(), self.db_offset + 0x4);
+    }
 
-    //     if self.dbbuf_update_and_check_event(head.into(), self.data.db_stride / 4) {
-    //         self.data.bar.writel(head.into(), self.db_offset + self.data.db_stride);
-    //     }
+    // check completion queue and update cq head cq doorbell until there is no pending command
+    pub fn nvme_poll_cq(&self, bar: &IoMem<8192, M>) {
 
-    //     // TODO: Comment on why it's ok.
-    //     self.cq_head.store(head, Ordering::Relaxed);
-    //     self.cq_phase.store(phase, Ordering::Relaxed);
+        let inner = &mut self.inner.lock();
 
-    //     found
+        info!("poll cq got lock");
+        if !self.nvme_cqe_pending(inner) {
+        }
+        
+        self.nvme_update_cq_head(inner);
+        self.nvme_ring_cq_doorbell(inner, bar);
 
-    // }
+        
+    }
 
-    // pub(crate) fn dbbuf_update_and_check_event(&self, value: u16, extra_index: usize) -> bool {
-    //     if self.qid == 0 {
-    //         return true;
-    //     }
+    /// Processes the completion queue.
+    ///
+    /// Returns `true` if at least one entry was processed, `false` otherwise.
+    pub(crate) fn process_completions(&self, bar: &IoMem<8192, M>) -> i32 {
+        let mut head = self.cq_head.load(Ordering::Relaxed);
+        let mut phase = self.cq_phase.load(Ordering::Relaxed);
+        let mut found = 0;
 
-    //     let shadow = if let Some(s) = &self.data.shadow {
-    //         s
-    //     } else {
-    //         return true;
-    //     };
+        loop {
+            let cqe = self.cq.read_volatile(head.into()).unwrap();
 
-    //     let index = self.sdb_index + extra_index;
+            if cqe.status.into() & 1 != phase {
+                break;
+            }
 
-    //     // TODO: This should be a wmb (sfence on x86-64).
-    //     // Ensure that the queue is written before updating the doorbell in memory.
-    //     fence(Ordering::SeqCst);
+            let cqe = self.cq.read_volatile(head.into()).unwrap();
 
-    //     let old_value = shadow.dbs.read_write(index, value.into()).unwrap();
+            found += 1;
+            head += 1;
+            if head == self.q_depth {
+                head = 0;
+                phase ^= 1;
+            }
+        }
 
-    //     // Ensure that the doorbell is updated before reading the event index from memory. The
-    //     // controller needs to provide similar ordering to ensure the envent index is updated
-    //     // before reading the doorbell.
-    //     fence(Ordering::SeqCst);
+        if found == 0 {
+            return found;
+        }
 
-    //     let ei = shadow.eis.read_volatile(index).unwrap();
-    //     Self::dbbuf_need_event(ei as _, value, old_value as _)
-    // }
+        // let bar = &self.nvme_dev.lock().resources.bar;
+        bar.writel(head.into(), self.db_offset + 0x4);
 
+        self.cq_head.store(head, Ordering::Relaxed);
+        self.cq_phase.store(phase, Ordering::Relaxed);
 
-
-    // pub(crate) fn write_sq_db(&self, write_sq: bool) {
-    //     let mut inner = self.inner.lock();
-    //     self.write_sq_db_locked(write_sq, &mut inner);
-    // }
-
-    // fn write_sq_db_locked(&self, write_sq: bool, inner: &mut NvmeQueueInner<I>) {
-    //     if !write_sq {
-    //         let mut next_tail = inner.sq_tail + 1;
-    //         if next_tail == self.q_depth {
-    //             next_tail = 0;
-    //         }
-    //         if next_tail != inner.last_sq_tail {
-    //             return;
-    //         }
-    //     }
-
-    //     if self.dbbuf_update_and_check_event(inner.sq_tail, 0) {
-    //         self.data.bar.try_writel(inner.sq_tail.into(), self.db_offset);
-    //     }
-    //     inner.last_sq_tail = inner.sq_tail;
-    // }
-
-    // pub(crate) fn submit_command(&self, cmd: &NvmeCommand, is_last: bool) {
-    //     let mut inner = self.inner.lock();
-    //     self.sq.write(inner.sq_tail.into(), cmd);
-    //     inner.sq_tail += 1;
-    //     if inner.sq_tail == self.q_depth {
-    //         inner.sq_tail = 0;
-    //     }
-    //     self.write_sq_db_locked(is_last, &mut inner);
-    // }
-    
-    // pub(crate) fn unregister_irq(&self) {
-    //     // Do not drop registration while spinlock is held, irq::free will take
-    //     // a mutex and might sleep.
-    //     let mut registration = self.inner.lock().irq.take();
-    //     drop(registration);
-    // }
-
-    // pub(crate) fn register_irq(self: &Ref<Self>){
-    //     info!(
-    //         "Registering irq for queue qid: {}, vector {}\n",
-    //         self.qid,
-    //         self.cq_vector
-    //     );
-    // }   
-
+        found
+    }
 }
-
-
-

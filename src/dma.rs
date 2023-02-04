@@ -12,13 +12,16 @@ pub trait DmaAllocator {
     // Map a coherent DMA buffer previously allocated by dma_alloc_attrs into user
     // space.  The coherent DMA buffer must not be freed by the driver until the
     // user space mapping has been released.
-    fn dma_alloc(size: usize, dma_handle: &mut u64) -> usize;
-    fn dma_dealloc(cpu_addr: *mut (), dma_handle: u64, size: usize) ;
+    fn dma_alloc(size: usize, dma_handle: &mut u64) -> usize{
+        info!("dma_alloc");
+        0
+    }
+    fn dma_dealloc(cpu_addr: *mut (), dma_handle: u64, size: usize){
+        info!("dma_dealloc");
+    }
 }
 
 pub fn dma_alloc<T, D:DmaAllocator>(count: usize) -> DmaInfo<T, D> {
-
-    
     let t_size = core::mem::size_of::<T>();
     let size = count.checked_mul(t_size).unwrap();
     
