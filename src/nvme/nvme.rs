@@ -1,30 +1,22 @@
 use alloc::sync::Arc;
-use alloc::vec;
 use alloc::vec::Vec;
 use core::marker::PhantomData;
-use core::ptr::{read_volatile, write_volatile};
 
 use super::nvme_defs::*;
 use super::nvme_queue::*;
 use crate::dma::DmaAllocator;
-use crate::dma::DmaInfo;
 use crate::iomem::{IoMapper, IoMem};
 use crate::irq::IrqController;
+
+
 use lock::Mutex;
-use lock::MutexGuard;
 
 use log::info;
 
 pub const NVME_QUEUE_DEPTH: usize = 1024;
 
-pub const NVME_Q_DEPTH: usize = 64;
-
-use alloc::boxed::Box;
 use core::{
-    cell::UnsafeCell,
-    convert::TryInto,
     format_args,
-    pin::Pin,
     sync::atomic::{AtomicU16, AtomicU32, AtomicU64, Ordering},
 };
 
@@ -51,15 +43,12 @@ pub struct NvmeQueues<D: DmaAllocator, I: IrqController, M: IoMapper> {
     pub admin_queue: Option<Arc<NvmeQueue<D, I, M>>>,
     pub io_queues: Vec<Arc<NvmeQueue<D, I, M>>>,
 }
-impl<D:DmaAllocator, I:IrqController, M:IoMapper> NvmeQueues<D, I, M>{
-
-    pub fn new()-> Self{
-
-        Self{
+impl<D: DmaAllocator, I: IrqController, M: IoMapper> NvmeQueues<D, I, M> {
+    pub fn new() -> Self {
+        Self {
             admin_queue: None,
             io_queues: Vec::new(),
         }
-
     }
 }
 
@@ -77,13 +66,13 @@ impl<I: IoMapper> NvmeResources<I> {
     }
 }
 
-pub struct NvmeDevice< D: DmaAllocator, I: IrqController, M: IoMapper> {
+pub struct NvmeDevice<D: DmaAllocator, I: IrqController, M: IoMapper> {
     pub db_stride: usize,
-    pub queues: NvmeQueues< D, I, M>,
+    pub queues: NvmeQueues<D, I, M>,
     resources: NvmeResources<M>,
 }
 
-impl<D: DmaAllocator, I: IrqController, M: IoMapper> NvmeDevice< D, I, M> {
+impl<D: DmaAllocator, I: IrqController, M: IoMapper> NvmeDevice<D, I, M> {
     pub fn new(bar_addr: usize, db_stride: usize) -> Self {
         Self {
             db_stride: db_stride,
@@ -100,44 +89,44 @@ impl<D: DmaAllocator, I: IrqController, M: IoMapper> NvmeDevice< D, I, M> {
     }
 }
 
-pub struct NvmeDriver<D: DmaAllocator, I: IrqController , M: IoMapper> {
-    pub nvme_dev: Arc<Mutex<NvmeDevice<D,I,M>>>,
+pub struct NvmeDriver<D: DmaAllocator, I: IrqController, M: IoMapper> {
+    pub nvme_dev: Arc<Mutex<NvmeDevice<D, I, M>>>,
     dma: PhantomData<D>,
     iomem: PhantomData<M>,
     irq: PhantomData<I>,
-
-    // pub db_stride: usize,
-    // pub queues: NvmeQueues<D, I, M>,
-    // pub resources: NvmeResources<M>,
 }
 
-impl<D: DmaAllocator, I: IrqController, M: IoMapper> NvmeDriver< D, I, M> {
-
-    pub fn new(bar_addr: usize) -> Self{
+impl<D: DmaAllocator, I: IrqController, M: IoMapper> NvmeDriver<D, I, M> {
+    pub fn new(bar_addr: usize) -> Self {
         let nvme_dev = Arc::new(Mutex::new(NvmeDevice::<D, I, M>::new(bar_addr, 0)));
-                
-        Self{
-            dma: PhantomData, 
+
+        Self {
+            dma: PhantomData,
             iomem: PhantomData,
             irq: PhantomData,
             nvme_dev: nvme_dev,
         }
     }
     pub fn init(&self) {
-
-        let nvme_dev = &self.nvme_dev;
-
-        let admin_queu = Self::configure_admin_queue(nvme_dev);
-
-        nvme_dev.lock().queues.admin_queue = Some(Arc::new(admin_queu));
-
-
-        Self::nvme_setup_io_queues(nvme_dev);
+        Self::configure_admin_queue(&self.nvme_dev);
+        Self::nvme_setup_io_queues(&self.nvme_dev);
     }
 
-    pub(crate) fn configure_admin_queue<'a>(nvme_dev: &'a Arc<Mutex<NvmeDevice<D,I,M>>>) -> NvmeQueue< D, I, M> {
-        // let bar = IoMem::<8192, M>::new(bar_raw, 8192);
-        let bar = &nvme_dev.lock().resources.bar;
+    pub(crate) fn submit_sync_command(
+        nvme_dev: &Arc<Mutex<NvmeDevice<D, I, M>>>,
+        mut cmd: NvmeCommand,
+    ) {
+        let nvme = nvme_dev.lock();
+        let admin_queue = nvme.queues.admin_queue.as_ref().unwrap().as_ref();
+        let bar = &nvme.resources.bar;
+        admin_queue.submit_command(&cmd, true, bar);
+        admin_queue.nvme_poll_cq(bar);
+    }
+
+    pub(crate) fn configure_admin_queue<'a>(nvme_dev: &'a Arc<Mutex<NvmeDevice<D, I, M>>>) {
+        let mut dev = nvme_dev.lock();
+
+        let bar = &dev.resources.bar;
 
         info!("Disable (reset) controller\n");
         bar.writel(0, OFFSET_CC);
@@ -147,12 +136,6 @@ impl<D: DmaAllocator, I: IrqController, M: IoMapper> NvmeDriver< D, I, M> {
         let queue_depth = NVME_QUEUE_DEPTH;
 
         let admin_queue = NvmeQueue::<D, I, M>::new(0, queue_depth as u16, 0, false, 0);
-
-        // //lba_shift = 2^9 512
-        // let ns = Box::try_new(NvmeNamespace {
-        //     id: 0,
-        //     lba_shift: 9,
-        // })?;
 
         let mut aqa = (queue_depth - 1) as u32;
         aqa |= aqa << 16;
@@ -172,25 +155,8 @@ impl<D: DmaAllocator, I: IrqController, M: IoMapper> NvmeDriver< D, I, M> {
 
         Self::wait_ready(&bar);
 
-        admin_queue
+        dev.queues.admin_queue = Some(Arc::new(admin_queue));
     }
-
-    fn wait_ready(bar: &IoMem<8192, M>) {
-        info!("Waiting for controller ready\n");
-
-        while bar.readl(OFFSET_CSTS) & NVME_CSTS_RDY == 0 {}
-
-        info!("Controller ready\n");
-    }
-
-    fn wait_idle(bar: &IoMem<8192, M>) {
-        info!("Waiting for controller idle\n");
-
-        while bar.readl(OFFSET_CSTS) & NVME_CSTS_RDY != 0 {}
-
-        info!("Controller ready\n");
-    }
-
 
     pub(crate) fn nvme_setup_io_queues(nvme_dev: &Arc<Mutex<NvmeDevice<D, I, M>>>) {
         let queue_depth = NVME_QUEUE_DEPTH;
@@ -201,9 +167,10 @@ impl<D: DmaAllocator, I: IrqController, M: IoMapper> NvmeDriver< D, I, M> {
         nvme_dev.lock().queues.io_queues.push(Arc::new(io_queue));
     }
 
-
-    pub(crate) fn alloc_completion_queue(nvme_dev: &Arc<Mutex<NvmeDevice<D, I, M>>>, queue: &NvmeQueue<D, I, M>) {
-
+    pub(crate) fn alloc_completion_queue(
+        nvme_dev: &Arc<Mutex<NvmeDevice<D, I, M>>>,
+        queue: &NvmeQueue<D, I, M>,
+    ) {
         info!("alloc cq");
         let mut flags = NVME_QUEUE_PHYS_CONTIG;
         if !queue.polled {
@@ -224,33 +191,37 @@ impl<D: DmaAllocator, I: IrqController, M: IoMapper> NvmeDriver< D, I, M> {
         Self::submit_sync_command(nvme_dev, cmd);
     }
 
-    pub(crate) fn alloc_submission_queue(nvme_dev: &Arc<Mutex<NvmeDevice<D, I, M>>>, queue: &NvmeQueue<D, I, M>){
-
+    pub(crate) fn alloc_submission_queue(
+        nvme_dev: &Arc<Mutex<NvmeDevice<D, I, M>>>,
+        queue: &NvmeQueue<D, I, M>,
+    ) {
         let cmd = NvmeCommand {
-                create_sq: NvmeCreateSq {
-                    opcode: NvmeAdminOpcode::create_sq as _,
-                    prp1: queue.sq.dma_handle.into(),
-                    sqid: queue.qid.into(),
-                    qsize: (queue.q_depth - 1).into(),
-                    sq_flags: (NVME_QUEUE_PHYS_CONTIG | NVME_SQ_PRIO_MEDIUM).into(),
-                    cqid: queue.qid.into(),
-                    ..NvmeCreateSq::default()
-                },
-            };
-        
+            create_sq: NvmeCreateSq {
+                opcode: NvmeAdminOpcode::create_sq as _,
+                prp1: queue.sq.dma_handle.into(),
+                sqid: queue.qid.into(),
+                qsize: (queue.q_depth - 1).into(),
+                sq_flags: (NVME_QUEUE_PHYS_CONTIG | NVME_SQ_PRIO_MEDIUM).into(),
+                cqid: queue.qid.into(),
+                ..NvmeCreateSq::default()
+            },
+        };
+
         Self::submit_sync_command(nvme_dev, cmd);
     }
-    fn set_queue_count(
-        count: u32,
-        nvme_dev: &Arc<Mutex<NvmeDevice<D, I, M>>>
-    ) {
+
+    fn set_queue_count(count: u32, nvme_dev: &Arc<Mutex<NvmeDevice<D, I, M>>>) {
         // let q_count = (count - 1) | ((count - 1) << 16);
         let q_count = count;
-        let res = Self::set_features(NVME_FEAT_NUM_QUEUES, q_count, 0,nvme_dev);
-
+        let res = Self::set_features(NVME_FEAT_NUM_QUEUES, q_count, 0, nvme_dev);
     }
 
-    fn set_features(fid: u32, dword11: u32, dma_addr: u64, nvme_dev: &Arc<Mutex<NvmeDevice<D, I, M>>>) -> u32 {
+    fn set_features(
+        fid: u32,
+        dword11: u32,
+        dma_addr: u64,
+        nvme_dev: &Arc<Mutex<NvmeDevice<D, I, M>>>,
+    ) -> u32 {
         info!("fid: {}, dma: {}, dword11: {}", fid, dma_addr, dword11);
 
         Self::submit_sync_command(
@@ -269,15 +240,19 @@ impl<D: DmaAllocator, I: IrqController, M: IoMapper> NvmeDriver< D, I, M> {
         1
     }
 
-    pub(crate) fn submit_sync_command(nvme_dev: &Arc<Mutex<NvmeDevice<D, I, M>>>, mut cmd: NvmeCommand) {
+    fn wait_ready(bar: &IoMem<8192, M>) {
+        info!("Waiting for controller ready\n");
 
-        let nvme = nvme_dev.lock();
-        let admin_queue = nvme.queues.admin_queue.as_ref().unwrap().as_ref();
-        let bar = &nvme.resources.bar;
-        admin_queue.submit_command(&cmd, true, bar);
-        admin_queue.nvme_poll_cq(bar);
+        while bar.readl(OFFSET_CSTS) & NVME_CSTS_RDY == 0 {}
 
+        info!("Controller ready\n");
+    }
+
+    fn wait_idle(bar: &IoMem<8192, M>) {
+        info!("Waiting for controller idle\n");
+
+        while bar.readl(OFFSET_CSTS) & NVME_CSTS_RDY != 0 {}
+
+        info!("Controller ready\n");
     }
 }
-
-
