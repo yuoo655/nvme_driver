@@ -8,6 +8,8 @@ extern crate alloc;
 use alloc::sync::Arc;
 use alloc::vec::Vec;
 
+use lock::mutex;
+
 mod nvme;
 
 pub use nvme::*;
@@ -19,9 +21,9 @@ pub struct NvmeData<A, T>
 where
     A: NvmeTraits + 'static,
 {
-    pub queues: NvmeQueues<A, T>,
+    pub queues: Mutex<NvmeQueues<A, T>>,
     pub db_stride: usize,
-    pub bar: NvmeCommonData<A>
+    pub bar: Arc<NvmeCommonData<A>>
 }
 
 

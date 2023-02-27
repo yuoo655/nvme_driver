@@ -1,4 +1,9 @@
 use core::sync::atomic::*;
+use alloc::sync::Arc;
+use alloc::vec::Vec;
+use core::ptr::write_volatile;
+use core::ptr::read_volatile;
+extern crate alloc;
 
 use nvme_driver::*;
 
@@ -13,15 +18,15 @@ lazy_static! {
 pub struct NvmeTraitsImpl;
 
 
-impl NvmeTraitsImpl for NvmeTraits{
+impl NvmeTraits for NvmeTraitsImpl{
 
-    fn dma_alloc(size: usize, dma_handle: &mut u64) -> usize{
+    fn dma_alloc(&self, size: usize, dma_handle: &mut u64) -> usize{
         let paddr = DMA_PADDR.fetch_add(size, Ordering::SeqCst);
         *dma_handle = paddr as u64;
         paddr
     }
 
-    fn dma_dealloc(cpu_addr: *mut (), dma_handle: u64, size: usize){
+    fn dma_dealloc(&self, cpu_addr: *mut (), dma_handle: u64, size: usize){
 
     }
 
@@ -36,28 +41,28 @@ impl NvmeTraitsImpl for NvmeTraits{
 
     fn writew(val: u16, offset: usize) {
         unsafe {
-            write_volatile(self.ptr as *mut u16, val);
+            write_volatile(offset as *mut u16, val);
         }
     }
 
     fn readl(offset: usize) -> u32 {
-        let val = unsafe { read_volatile((self.ptr + offset) as *mut u32) };
+        let val = unsafe { read_volatile((offset) as *mut u32) };
         val
     }
 
     fn writel(val: u32, offset: usize) {
         unsafe {
-            write_volatile((self.ptr + offset) as *mut u32, val);
+            write_volatile(( offset) as *mut u32, val);
         }
     }
 
     fn readq(offset: usize) -> u64 {
-        let val = unsafe { read_volatile((self.ptr + offset) as *mut u64) };
+        let val = unsafe { read_volatile((offset) as *mut u64) };
         val
     }
     fn writeq(val: u64, offset: usize) {
         unsafe {
-            write_volatile((self.ptr + offset) as *mut u64, val);
+            write_volatile((offset) as *mut u64, val);
         }
     }
 
@@ -65,41 +70,77 @@ impl NvmeTraitsImpl for NvmeTraits{
 
 
 
+
+// pub struct NvmeData<A, T>
+// where
+//     A: NvmeTraits + 'static,
+// {
+//     pub queues: NvmeQueues<A, T>,
+//     pub db_stride: usize,
+//     pub bar: IoMem<8192, A>,
+// }
+
+
+// pub struct NvmeCommonData<A>
+// where
+//     A: NvmeTraits + 'static,
+// {
+//     pub bar: IoMem<8192, A>,
+// }
+
 pub fn nvme_test() ->!{
     config_pci();
 
-    // let bar = IoMem::<8192, NvmeTraitsImpl>::new(0x40000000 as usize, 8192);
+    let bar = IoMem::<8192, NvmeTraitsImpl>::new(0x40000000 as usize, 8192);
 
-    // let nvme_data = NvmeData{
-    //     queues: nvme_queues,
-    //     bar: bar,
-    //     db_stride: 0,
-    // };
+    let nvme_common_data = Arc::new(NvmeCommonData::<NvmeTraitsImpl>{
+        bar: bar,
+    });
 
-    // let nvme_dev = NvmeTraitsImpl::new(0);
-    // let admin_queue = NvmeQueue::<NvmeTraitsImpl, usize>::new(
-    //         nvme_dev,
-    //         0x0,
-    //         nvme_data.clone(),
-    //         0,
-    //         (NVME_QUEUE_DEPTH ) as u16,
-    //         0,
-    //         false,
-    //         0,
-    //     );
+    let nvme_queues = NvmeQueues::<NvmeTraitsImpl, usize>::new();
+
+    let nvme_data = Arc::new(NvmeData{
+        queues: nvme_queues,
+        bar: nvme_common_data,
+        db_stride: 0,
+    });
+
+    let nvme_dev = NvmeTraitsImpl;
+
+    
 
 
-    // let io_queue = NvmeQueue::<NvmeTraitsImpl, *mut bindings::device>::new(
-    //         nvme_dev,
-    //         0x0,
-    //         nvme_data.clone(),
-    //         1,
-    //         (NVME_QUEUE_DEPTH)as u16,
-    //         1,
-    //         false,
-    //         0x4,
-    //     );
-    // config_admin_queue()
+    let admin_queue = Arc::new(NvmeQueue::<NvmeTraitsImpl, usize>::new(
+            nvme_dev,
+            0x0,
+            nvme_data.bar.clone(),
+            0,
+            (NVME_QUEUE_DEPTH ) as u16,
+            0,
+            false,
+            0,
+    ));
+
+    let nvme_dev = NvmeTraitsImpl;
+
+    let io_queue = Arc::new(NvmeQueue::<NvmeTraitsImpl, usize>::new(
+            nvme_dev,
+            0x0,
+            nvme_data.bar.clone(),
+            1,
+            (NVME_QUEUE_DEPTH)as u16,
+            1,
+            false,
+            0x4,
+    ));
+
+    let bar = &nvme_data.bar.clone().bar;
+    config_admin_queue(bar, &admin_queue);
+    set_queue_count(1, &nvme_data);
+    alloc_completion_queue(&nvme_data, &io_queue);
+    alloc_submission_queue(&nvme_data, &io_queue);
+
+
 
 
 
@@ -122,10 +163,21 @@ pub fn nvme_test() ->!{
 
 
 
+pub fn submit_sync_command<A: NvmeTraits, T>(nvme_dev: &Arc<NvmeData<A, T>>,mut cmd: NvmeCommand){
+
+    let admin_queue = &nvme_dev.queues.admin_queue.unwrap();
+
+    admin_queue.submit_command(&mut cmd, true);
+    admin_queue.nvme_poll_cq();
+
+}
 
 
 
-use core::ptr::write_volatile;
+
+
+
+
 
 pub fn config_pci(){
     let ptr = 0x30008010 as *mut u32;
