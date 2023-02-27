@@ -33,9 +33,9 @@ where
     A: NvmeTraits + 'static,
 {
 
-    pub fn read_block(&self, block_id: usize, read_buf: &mut [u8; 512]) {
+    pub fn read_block(&self, block_id: usize, read_buf: &mut [u8; 512], qid: usize) {
 
-        let io_queue = &self.queues.lock().io_queues[0];
+        let io_queue = &self.queues.lock().io_queues[qid];
         let mut cmd = NvmeCommand {
         rw: NvmeRw {
                 opcode: 0x2 as u8,
@@ -48,9 +48,6 @@ where
         };
 
         let read_buffer_addr  = read_buf as *mut [u8; 512] as usize;
-    
-        // let addr = ptr as usize;
-
         cmd.rw.prp1 = (read_buffer_addr as u64).into();
 
 
@@ -69,9 +66,9 @@ where
     // prp2 = 0
     // SLBA = start logical block address
     // length = 0 = 512B
-    pub fn write_block(&self, block_id: usize, write_buf: &[u8; 512]) {
+    pub fn write_block(&self, block_id: usize, write_buf: &[u8; 512],  qid: usize) {
 
-        let io_queue = &self.queues.lock().io_queues[0];
+        let io_queue = &self.queues.lock().io_queues[qid];
         let mut cmd = NvmeCommand {
         rw: NvmeRw {
                 opcode: 0x1 as u8,
@@ -82,16 +79,9 @@ where
                 ..NvmeRw::default()
             },
         };
-
-
         let write_buffer_addr  = write_buf as *const [u8; 512] as usize;
-    
-
         cmd.rw.prp1 = (write_buffer_addr as u64).into();
-
-
         io_queue.submit_command(&cmd, true);
-
         io_queue.nvme_poll_one();
     }
 
@@ -132,7 +122,7 @@ pub fn alloc_completion_queue<A: NvmeTraits, T: 'static>(
         create_cq: NvmeCreateCq {
             opcode: NvmeAdminOpcode::create_cq as _,
             prp1: queue.cq.dma_handle.into(),
-            cqid: (1).into(),
+            cqid: queue.qid.into(),
             qsize: (queue.q_depth - 1).into(),
             cq_flags: flags.into(),
             // irq_vector: queue.cq_vector.into(),

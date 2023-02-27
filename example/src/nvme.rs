@@ -91,6 +91,9 @@ impl NvmeTraits for NvmeTraitsImpl{
 //     pub bar: IoMem<8192, A>,
 // }
 
+const NVME_QUEUE_DEPTH: usize = 1024;
+
+
 pub fn nvme_test() ->!{
     config_pci();
 
@@ -110,15 +113,12 @@ pub fn nvme_test() ->!{
 
     let nvme_dev = NvmeTraitsImpl;
 
-    
-
-
     let admin_queue = Arc::new(NvmeQueue::<NvmeTraitsImpl, usize>::new(
             nvme_dev,
             0x0,
             nvme_data.bar.clone(),
             0,
-            (1024 ) as u16,
+            (NVME_QUEUE_DEPTH ) as u16,
             0,
             false,
             0,
@@ -126,69 +126,71 @@ pub fn nvme_test() ->!{
 
     let nvme_dev = NvmeTraitsImpl;
 
-    let io_queue = Arc::new(NvmeQueue::<NvmeTraitsImpl, usize>::new(
+    let io_queue_1 = Arc::new(NvmeQueue::<NvmeTraitsImpl, usize>::new(
             nvme_dev,
             0x0,
             nvme_data.bar.clone(),
             1,
-            (1024)as u16,
+            (NVME_QUEUE_DEPTH)as u16,
             1,
             false,
             0x4,
     ));
 
-    let bar = &nvme_data.bar.clone().bar;
+    let nvme_dev = NvmeTraitsImpl;
+    let io_queue_2 = Arc::new(NvmeQueue::<NvmeTraitsImpl, usize>::new(
+            nvme_dev,
+            0x0,
+            nvme_data.bar.clone(),
+            2,
+            (NVME_QUEUE_DEPTH)as u16,
+            1,
+            false,
+            0x4,
+    ));
 
+
+
+
+    let bar = &nvme_data.bar.clone().bar;
     config_admin_queue(bar, &admin_queue);
 
     nvme_data.queues.lock().admin_queue = Some(admin_queue.clone());
-    nvme_data.queues.lock().io_queues.push(io_queue.clone());
-    set_queue_count(1, nvme_data.clone());
+    nvme_data.queues.lock().io_queues.push(io_queue_1.clone());
+    nvme_data.queues.lock().io_queues.push(io_queue_2.clone());
+
+
+    set_queue_count(2, nvme_data.clone());
     
-    alloc_completion_queue(nvme_data.clone(), &io_queue);
-    alloc_submission_queue(nvme_data.clone(), &io_queue);
+    alloc_completion_queue(nvme_data.clone(), &io_queue_1);
+    alloc_submission_queue(nvme_data.clone(), &io_queue_1);
 
-    // for i in 0..10{
-
-    //     unsafe{
-    //         let buff = [i as u8;512];
-    //         let mut read_buf_addr = NvmeTraitsImpl.dma_alloc(4096, &mut 0);
-            
-    //         let mut read_buf = core::slice::from_raw_parts_mut(read_buf_addr as *mut u8, 512);
-
-            
-    //         let mut write_buf_addr = NvmeTraitsImpl.dma_alloc(4096, &mut 0);
-    //         let mut write_buf = core::slice::from_raw_parts_mut(write_buf_addr as *mut u8, 512);
-    //         write_buf.copy_from_slice(&buff);
-
-
-    //         println!("read_buf_addr: {:x}", read_buf_addr);
-    //         println!("write_buf_addr: {:x}", write_buf_addr);
-    //         nvme_data.write_block(i, &write_buf);
-
-    //         nvme_data.read_block(i, &mut read_buf);
-    //         assert_eq!(read_buf, buff);
-    //     }
-
-    //     println!("i: {}", i);
-    // }
+    alloc_completion_queue(nvme_data.clone(), &io_queue_2);
+    alloc_submission_queue(nvme_data.clone(), &io_queue_2);
 
 
 
 
 
 
-    for i in 0..10000{
+    for i in 0..1000{
         let mut read_buf = [0u8; 512];
         let buff = [i as u8;512];
         let write_buf:&[u8;512] = &[i as u8;512];
-        nvme_data.write_block(i, &write_buf);
-        nvme_data.read_block(i, &mut read_buf);
+        nvme_data.write_block(i, &write_buf, 0);
+        nvme_data.read_block(i, &mut read_buf, 0);
         assert_eq!(read_buf, buff);
     }
 
 
-
+    for i in 0..1000{
+        let mut read_buf = [0u8; 512];
+        let buff = [i as u8;512];
+        let write_buf:&[u8;512] = &[i as u8;512];
+        nvme_data.write_block(i, &write_buf, 1);
+        nvme_data.read_block(i, &mut read_buf, 1);
+        assert_eq!(read_buf, buff);
+    }
 
 
 
