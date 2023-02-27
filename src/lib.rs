@@ -55,7 +55,7 @@ where
 
 
         io_queue.submit_command(&cmd, true);
-        io_queue.nvme_poll_cq();
+        // io_queue.process_one();
 
 
         // let bar = &io_queue.device_data.bar;
@@ -149,7 +149,8 @@ pub fn submit_sync_command<A: NvmeTraits, T: 'static>(nvme_dev: Arc<NvmeData<A, 
     let admin_queue = queues.admin_queue.as_ref().unwrap();
 
     admin_queue.submit_command(&mut cmd, true);
-    admin_queue.nvme_poll_cq();
+    // admin_queue.nvme_poll_cq();
+    admin_queue.process_completions();
 
     
 }

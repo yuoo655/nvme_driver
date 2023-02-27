@@ -130,7 +130,7 @@ where
 
         let bar = &self.device_data.bar;
 
-        let mut sq_tail = self.inner.sq_tail.load(Ordering::Relaxed);
+        let sq_tail = self.inner.sq_tail.load(Ordering::Relaxed);
         let mut last_sq_tail = self.inner.last_sq_tail.load(Ordering::Relaxed);
 
         if !write_sq {
@@ -158,6 +158,8 @@ where
         let phase = self.cq_phase.load(Ordering::Relaxed);
         let cqe = self.cq.read_volatile(head.into()).unwrap();
 
+        // self.cq_head.store(head, Ordering::Relaxed);
+        // self.cq_phase.store(phase, Ordering::Relaxed);
         if cqe.status.into() & 1 != phase {
             return true;
         } else {
@@ -189,7 +191,9 @@ where
     // check completion queue and update cq head cq doorbell until there is no pending command
     pub fn nvme_poll_cq(&self) {
         
-        if !self.nvme_cqe_pending() {}
+        while !self.nvme_cqe_pending() {
+
+        }
         self.nvme_update_cq_head();
         self.nvme_ring_cq_doorbell();
     }
