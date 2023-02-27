@@ -184,7 +184,6 @@ pub fn nvme_test() ->!{
         let write_buf:&[u8;512] = &[i as u8;512];
         nvme_data.write_block(i, &write_buf);
         nvme_data.read_block(i, &mut read_buf);
-        println!("{:?}", i);
         assert_eq!(read_buf, buff);
     }
 

@@ -42,6 +42,7 @@ qemu-nvme: osbin
 		-smp 1 \
 		-drive file=nvme.img,if=none,id=nvm \
 		-device nvme,serial=deadbeef,drive=nvm 
+# -append "LOG=info"
 # -trace "pci_nvme_*"
 
 # -drive file=nvme.img,if=none,id=nvm,format=raw -device nvme,serial=deadbeef,drive=nvm

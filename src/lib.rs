@@ -55,31 +55,14 @@ where
 
 
         io_queue.submit_command(&cmd, true);
-        // io_queue.process_one();
+        io_queue.nvme_poll_cq();
 
 
-        // let bar = &io_queue.device_data.bar;
+        use core::sync::atomic::*;
+        use core::sync::atomic::Ordering::*;
+        fence(Ordering::SeqCst);
 
-        // let mut head = io_queue.cq_head.load(Ordering::Relaxed);
-        // let mut phase = io_queue.cq_phase.load(Ordering::Relaxed);
-
-        // loop {
-        //     let cqe = io_queue.cq.read_volatile(head.into()).unwrap();
-        //     if cqe.status.into() & 1 != phase {
-        //         break;
-        //     }
-        //     let cqe = io_queue.cq.read_volatile(head.into()).unwrap();
-        //     head += 1;
-        //     if head == io_queue.q_depth {
-        //         head = 0;
-        //         phase ^= 1;
-        //     }            
-        // }
-
-        // io_queue.cq_head.store(head, Ordering::Relaxed);
-        // io_queue.cq_phase.store(phase, Ordering::Relaxed);
-
-        // bar.writel(head.into(), io_queue.db_offset + 0x4);
+        log::info!("read_buf {:?}", read_buf);
     }
 
     // prp1 = write_buf physical address
@@ -110,29 +93,6 @@ where
         io_queue.submit_command(&cmd, true);
 
         io_queue.nvme_poll_cq();
-
-        // let bar = &io_queue.device_data.bar;
-
-        // let mut head = io_queue.cq_head.load(Ordering::Relaxed);
-        // let mut phase = io_queue.cq_phase.load(Ordering::Relaxed);
-
-        // loop {
-        //     let cqe = io_queue.cq.read_volatile(head.into()).unwrap();
-        //     if cqe.status.into() & 1 != phase {
-        //         break;
-        //     }
-        //     let cqe = io_queue.cq.read_volatile(head.into()).unwrap();
-        //     head += 1;
-        //     if head == io_queue.q_depth {
-        //         head = 0;
-        //         phase ^= 1;
-        //     }            
-        // }
-
-        // io_queue.cq_head.store(head, Ordering::Relaxed);
-        // io_queue.cq_phase.store(phase, Ordering::Relaxed);
-
-        // bar.writel(head.into(), io_queue.db_offset + 0x4);
     }
 
 
