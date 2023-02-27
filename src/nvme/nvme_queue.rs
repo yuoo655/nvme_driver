@@ -233,5 +233,37 @@ where
         found
     }
 
+
+    pub fn process_one(&self){
+        let bar = &self.device_data.bar;
+
+        let mut head = self.cq_head.load(Ordering::Relaxed);
+        let mut phase = self.cq_phase.load(Ordering::Relaxed);
+        let mut found = 0;
+
+        loop {
+            let cqe = self.cq.read_volatile(head.into()).unwrap();
+
+            if cqe.status.into() & 1 != phase {
+                break;
+            }
+
+            let cqe = self.cq.read_volatile(head.into()).unwrap();
+
+            found += 1;
+            head += 1;
+            if head == self.q_depth {
+                head = 0;
+                phase ^= 1;
+            }
+            break;
+        }
+
+        bar.writel(head.into(), self.db_offset + 0x4);
+
+        self.cq_head.store(head, Ordering::Relaxed);
+        self.cq_phase.store(phase, Ordering::Relaxed);
+    }
+
 }
 

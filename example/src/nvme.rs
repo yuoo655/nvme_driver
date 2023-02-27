@@ -8,6 +8,9 @@ extern crate alloc;
 use nvme_driver::*;
 
 
+use lock::Mutex;
+use lock::MutexGuard;
+
 use lazy_static::lazy_static;
 
 lazy_static! {
@@ -100,7 +103,7 @@ pub fn nvme_test() ->!{
     let nvme_queues = NvmeQueues::<NvmeTraitsImpl, usize>::new();
 
     let nvme_data = Arc::new(NvmeData{
-        queues: nvme_queues,
+        queues: Mutex::new(nvme_queues),
         bar: nvme_common_data,
         db_stride: 0,
     });
@@ -115,7 +118,7 @@ pub fn nvme_test() ->!{
             0x0,
             nvme_data.bar.clone(),
             0,
-            (NVME_QUEUE_DEPTH ) as u16,
+            (1024 ) as u16,
             0,
             false,
             0,
@@ -128,17 +131,62 @@ pub fn nvme_test() ->!{
             0x0,
             nvme_data.bar.clone(),
             1,
-            (NVME_QUEUE_DEPTH)as u16,
+            (1024)as u16,
             1,
             false,
             0x4,
     ));
 
     let bar = &nvme_data.bar.clone().bar;
+
     config_admin_queue(bar, &admin_queue);
-    set_queue_count(1, &nvme_data);
-    alloc_completion_queue(&nvme_data, &io_queue);
-    alloc_submission_queue(&nvme_data, &io_queue);
+
+    nvme_data.queues.lock().admin_queue = Some(admin_queue.clone());
+    nvme_data.queues.lock().io_queues.push(io_queue.clone());
+    set_queue_count(1, nvme_data.clone());
+    
+    alloc_completion_queue(nvme_data.clone(), &io_queue);
+    alloc_submission_queue(nvme_data.clone(), &io_queue);
+
+    // for i in 0..10{
+
+    //     unsafe{
+    //         let buff = [i as u8;512];
+    //         let mut read_buf_addr = NvmeTraitsImpl.dma_alloc(4096, &mut 0);
+            
+    //         let mut read_buf = core::slice::from_raw_parts_mut(read_buf_addr as *mut u8, 512);
+
+            
+    //         let mut write_buf_addr = NvmeTraitsImpl.dma_alloc(4096, &mut 0);
+    //         let mut write_buf = core::slice::from_raw_parts_mut(write_buf_addr as *mut u8, 512);
+    //         write_buf.copy_from_slice(&buff);
+
+
+    //         println!("read_buf_addr: {:x}", read_buf_addr);
+    //         println!("write_buf_addr: {:x}", write_buf_addr);
+    //         nvme_data.write_block(i, &write_buf);
+
+    //         nvme_data.read_block(i, &mut read_buf);
+    //         assert_eq!(read_buf, buff);
+    //     }
+
+    //     println!("i: {}", i);
+    // }
+
+
+
+
+
+
+    for i in 0..100{
+        let mut read_buf = [0u8; 512];
+        let buff = [i as u8;512];
+        let write_buf:&[u8;512] = &[i as u8;512];
+        nvme_data.write_block(i, &write_buf);
+        nvme_data.read_block(i, &mut read_buf);
+        println!("{:?}", i);
+        assert_eq!(read_buf, buff);
+    }
 
 
 
@@ -146,13 +194,7 @@ pub fn nvme_test() ->!{
 
 
 
-
-
-
-
-
-
-
+ 
     panic!("Unreachable in rust_main!");
 }
 
@@ -163,12 +205,16 @@ pub fn nvme_test() ->!{
 
 
 
-pub fn submit_sync_command<A: NvmeTraits, T>(nvme_dev: &Arc<NvmeData<A, T>>,mut cmd: NvmeCommand){
+pub fn submit_sync_command<A: NvmeTraits, T>(nvme_dev: Arc<NvmeData<A, T>>,mut cmd: NvmeCommand){
 
-    let admin_queue = &nvme_dev.queues.admin_queue.unwrap();
+    println!("submit_sync_command");
 
-    admin_queue.submit_command(&mut cmd, true);
-    admin_queue.nvme_poll_cq();
+    // let mut admin_queue = nvme_dev.queues.lock().admin_queue.unwrap();
+    // // self.send_command(&mut admin_queue, cmd);
+    // // self.nvme_poll_cq(&mut admin_queue);
+
+    // admin_queue.submit_command(&mut cmd, true);
+    // admin_queue.nvme_poll_cq();
 
 }
 
