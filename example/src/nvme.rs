@@ -1,9 +1,7 @@
 use core::sync::atomic::*;
 
-use nvme_driver::DmaAllocator;
-use nvme_driver::IrqController;
-use nvme_driver::IoMapper;
-use nvme_driver::NvmeDriver;
+use nvme_driver::*;
+
 
 use lazy_static::lazy_static;
 
@@ -12,10 +10,10 @@ lazy_static! {
 }
 
 
-pub struct DmaProvider;
+pub struct NvmeTraitsImpl;
 
 
-impl DmaAllocator for DmaProvider{
+impl NvmeTraitsImpl for NvmeTraits{
 
     fn dma_alloc(size: usize, dma_handle: &mut u64) -> usize{
         let paddr = DMA_PADDR.fetch_add(size, Ordering::SeqCst);
@@ -27,12 +25,6 @@ impl DmaAllocator for DmaProvider{
 
     }
 
-}
-
-pub struct IoMapperProvider;
-
-impl IoMapper for IoMapperProvider{
-
     fn ioremap(start: usize, size: usize) -> usize{
 
         start
@@ -41,38 +33,84 @@ impl IoMapper for IoMapperProvider{
     fn iounmap(start: usize){
 
     }
+
+    fn writew(val: u16, offset: usize) {
+        unsafe {
+            write_volatile(self.ptr as *mut u16, val);
+        }
+    }
+
+    fn readl(offset: usize) -> u32 {
+        let val = unsafe { read_volatile((self.ptr + offset) as *mut u32) };
+        val
+    }
+
+    fn writel(val: u32, offset: usize) {
+        unsafe {
+            write_volatile((self.ptr + offset) as *mut u32, val);
+        }
+    }
+
+    fn readq(offset: usize) -> u64 {
+        let val = unsafe { read_volatile((self.ptr + offset) as *mut u64) };
+        val
+    }
+    fn writeq(val: u64, offset: usize) {
+        unsafe {
+            write_volatile((self.ptr + offset) as *mut u64, val);
+        }
+    }
+
 }
 
 
-pub struct IrqProvider;
-
-
-impl IrqController for IrqProvider{
-
-    fn request_irq(irq_num: usize) {}
-
-    fn enable_irq(irq_num: usize) {}
-
-    fn disable_irq(irq_num: usize) {}
-
-}
 
 pub fn nvme_test() ->!{
     config_pci();
-    let nvme = NvmeDriver::<DmaProvider, IrqProvider, IoMapperProvider>::new(0x40000000);
-    nvme.init();
 
-    
+    // let bar = IoMem::<8192, NvmeTraitsImpl>::new(0x40000000 as usize, 8192);
 
-    // for i in 0..100000{
-    //     let mut read_buf = [0u8; 512];
-    //     let buff = [i as u8;512];
-    //     let write_buf:&[u8] = &[i as u8;512];
-    //     nvme.write_block(i, &write_buf);
-    //     nvme.read_block(i, &mut read_buf);
-    //     // println!("{:?}", i);
-    //     assert_eq!(read_buf, buff);
-    // }
+    // let nvme_data = NvmeData{
+    //     queues: nvme_queues,
+    //     bar: bar,
+    //     db_stride: 0,
+    // };
+
+    // let nvme_dev = NvmeTraitsImpl::new(0);
+    // let admin_queue = NvmeQueue::<NvmeTraitsImpl, usize>::new(
+    //         nvme_dev,
+    //         0x0,
+    //         nvme_data.clone(),
+    //         0,
+    //         (NVME_QUEUE_DEPTH ) as u16,
+    //         0,
+    //         false,
+    //         0,
+    //     );
+
+
+    // let io_queue = NvmeQueue::<NvmeTraitsImpl, *mut bindings::device>::new(
+    //         nvme_dev,
+    //         0x0,
+    //         nvme_data.clone(),
+    //         1,
+    //         (NVME_QUEUE_DEPTH)as u16,
+    //         1,
+    //         false,
+    //         0x4,
+    //     );
+    // config_admin_queue()
+
+
+
+
+
+
+
+
+
+
+
 
     panic!("Unreachable in rust_main!");
 }
