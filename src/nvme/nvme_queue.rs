@@ -158,7 +158,7 @@ where
         let phase = self.cq_phase.load(Ordering::Relaxed);
         let cqe = self.cq.read_volatile(head.into()).unwrap();
 
-        if cqe.status.into() & 1 != phase {
+        if cqe.status.into() & 1 == phase {
             return true;
         } else {
             return false;
@@ -177,6 +177,10 @@ where
         } else {
             head = next_head;
         }
+
+        self.cq_head.store(head, Ordering::Relaxed);
+        self.cq_phase.store(phase, Ordering::Relaxed);
+
     }
 
     // notify nvme device we've completed the command
@@ -191,6 +195,23 @@ where
         
         if self.nvme_cqe_pending() {
         }
+
+        self.nvme_update_cq_head();
+        self.nvme_ring_cq_doorbell();
+    }
+
+
+    pub fn nvme_poll_one(&self) {
+        
+        while self.nvme_cqe_pending() == false {
+        }
+        let  head = self.cq_head.load(Ordering::Relaxed);
+        let  phase = self.cq_phase.load(Ordering::Relaxed);
+        let cqe = self.cq.read_volatile(head.into()).unwrap();
+        // log::info!("head {:?} status {:?} phase {:?}", head, cqe.status.into(), phase);
+        self.cq_head.store(head, Ordering::Relaxed);
+        self.cq_phase.store(phase, Ordering::Relaxed);
+
         self.nvme_update_cq_head();
         self.nvme_ring_cq_doorbell();
     }

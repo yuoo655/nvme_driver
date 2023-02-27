@@ -178,7 +178,7 @@ pub fn nvme_test() ->!{
 
 
 
-    for i in 0..100{
+    for i in 0..10000{
         let mut read_buf = [0u8; 512];
         let buff = [i as u8;512];
         let write_buf:&[u8;512] = &[i as u8;512];

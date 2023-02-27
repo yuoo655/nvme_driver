@@ -55,14 +55,14 @@ where
 
 
         io_queue.submit_command(&cmd, true);
-        io_queue.nvme_poll_cq();
+        io_queue.nvme_poll_one();
 
 
         use core::sync::atomic::*;
         use core::sync::atomic::Ordering::*;
         fence(Ordering::SeqCst);
 
-        log::info!("read_buf {:?}", read_buf);
+        // log::info!("read_buf {:?}", read_buf);
     }
 
     // prp1 = write_buf physical address
@@ -92,7 +92,7 @@ where
 
         io_queue.submit_command(&cmd, true);
 
-        io_queue.nvme_poll_cq();
+        io_queue.nvme_poll_one();
     }
 
 
