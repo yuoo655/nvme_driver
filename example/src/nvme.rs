@@ -150,6 +150,31 @@ pub fn nvme_test() ->!{
     ));
 
 
+    let nvme_dev = NvmeTraitsImpl;
+    let io_queue_3 = Arc::new(NvmeQueue::<NvmeTraitsImpl, usize>::new(
+            nvme_dev,
+            0x0,
+            nvme_data.bar.clone(),
+            3,
+            (NVME_QUEUE_DEPTH)as u16,
+            1,
+            false,
+            0x4,
+    ));
+
+
+    let nvme_dev = NvmeTraitsImpl;
+    let io_queue_4 = Arc::new(NvmeQueue::<NvmeTraitsImpl, usize>::new(
+            nvme_dev,
+            0x0,
+            nvme_data.bar.clone(),
+            4,
+            (NVME_QUEUE_DEPTH)as u16,
+            1,
+            false,
+            0x4,
+    ));
+
 
 
     let bar = &nvme_data.bar.clone().bar;
@@ -158,9 +183,10 @@ pub fn nvme_test() ->!{
     nvme_data.queues.lock().admin_queue = Some(admin_queue.clone());
     nvme_data.queues.lock().io_queues.push(io_queue_1.clone());
     nvme_data.queues.lock().io_queues.push(io_queue_2.clone());
+    nvme_data.queues.lock().io_queues.push(io_queue_3.clone());
+    nvme_data.queues.lock().io_queues.push(io_queue_4.clone());
 
-
-    set_queue_count(2, nvme_data.clone());
+    set_queue_count(4, nvme_data.clone());
     
     alloc_completion_queue(nvme_data.clone(), &io_queue_1);
     alloc_submission_queue(nvme_data.clone(), &io_queue_1);
@@ -168,10 +194,11 @@ pub fn nvme_test() ->!{
     alloc_completion_queue(nvme_data.clone(), &io_queue_2);
     alloc_submission_queue(nvme_data.clone(), &io_queue_2);
 
+    alloc_completion_queue(nvme_data.clone(), &io_queue_3);
+    alloc_submission_queue(nvme_data.clone(), &io_queue_3);
 
-
-
-
+    alloc_completion_queue(nvme_data.clone(), &io_queue_4);
+    alloc_submission_queue(nvme_data.clone(), &io_queue_4);
 
     for i in 0..1000{
         let mut read_buf = [0u8; 512];
@@ -193,7 +220,24 @@ pub fn nvme_test() ->!{
     }
 
 
+    for i in 0..1000{
+        let mut read_buf = [0u8; 512];
+        let buff = [i as u8;512];
+        let write_buf:&[u8;512] = &[i as u8;512];
+        nvme_data.write_block(i, &write_buf, 2);
+        nvme_data.read_block(i, &mut read_buf, 2);
+        assert_eq!(read_buf, buff);
+    }
 
+
+    for i in 0..1000{
+        let mut read_buf = [0u8; 512];
+        let buff = [i as u8;512];
+        let write_buf:&[u8;512] = &[i as u8;512];
+        nvme_data.write_block(i, &write_buf, 3);
+        nvme_data.read_block(i, &mut read_buf, 3);
+        assert_eq!(read_buf, buff);
+    }
 
  
     panic!("Unreachable in rust_main!");
