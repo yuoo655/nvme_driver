@@ -225,6 +225,7 @@ impl<D: DmaAllocator, I: IrqController> NvmeInterface<D, I> {
     }
 
     fn send_read_command(&self, block_id: usize, read_buf: &mut [u8], cid: usize) -> usize {
+        // buffer should be dword aligned
         // 这里dma addr 就是buffer的地址
         let ptr = read_buf.as_mut_ptr();
         let addr = D::virt_to_phys(ptr as usize);
@@ -245,7 +246,10 @@ impl<D: DmaAllocator, I: IrqController> NvmeInterface<D, I> {
 
         cid as usize
     }
+    
+    
     fn send_write_command(&self, block_id: usize, write_buf: &[u8], cid: usize) -> usize {
+        // buffer should be dword aligned    
         let ptr = write_buf.as_ptr();
         let addr = D::virt_to_phys(ptr as usize);
         // build nvme write command
